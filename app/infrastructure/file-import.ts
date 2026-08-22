@@ -1,0 +1,78 @@
+import type { EditorDocument, DocumentObject } from '../domain/document';
+import { storeAsset } from './local-storage';
+
+export const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']);
+export const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+
+export type ImportResult =
+  | { kind: 'image'; object: DocumentObject }
+  | { kind: 'text'; text: string }
+  | { kind: 'table'; rows: string[][] }
+  | { kind: 'document'; document: EditorDocument }
+  | { kind: 'attachment'; object: DocumentObject; notice?: string };
+
+function extensionOf(name: string) {
+  const dot = name.lastIndexOf('.');
+  return dot < 0 ? '' : name.slice(dot + 1).toLowerCase();
+}
+
+function parseCsv(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char === '"' && quoted && text[i + 1] === '"') { cell += '"'; i += 1; }
+    else if (char === '"') quoted = !quoted;
+    else if (char === ',' && !quoted) { row.push(cell); cell = ''; }
+    else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && text[i + 1] === '\n') i += 1;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += char;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((item) => item.some((value) => value.trim()));
+}
+
+async function sanitizedSvg(file: File) {
+  const text = await file.text();
+  if (/<script\b|<foreignObject\b|\son\w+\s*=|(?:href|xlink:href)\s*=\s*["'](?:https?:|data:text\/html)/i.test(text)) {
+    throw new Error('실행 가능한 코드가 포함된 SVG는 삽입할 수 없습니다.');
+  }
+  return new Blob([text], { type: 'image/svg+xml' });
+}
+
+export async function importFile(file: File, position = { x: 90, y: 120 }): Promise<ImportResult> {
+  if (file.size <= 0) throw new Error('빈 파일은 가져올 수 없습니다.');
+  const extension = extensionOf(file.name);
+
+  if (IMAGE_TYPES.has(file.type) || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'].includes(extension)) {
+    if (file.size > MAX_IMAGE_BYTES) throw new Error('이미지는 30MB 이하만 삽입할 수 있습니다.');
+    const blob = extension === 'svg' || file.type === 'image/svg+xml' ? await sanitizedSvg(file) : file;
+    const asset = await storeAsset(blob, file.name, blob.type);
+    return {
+      kind: 'image',
+      object: { id: crypto.randomUUID(), type: 'image', x: position.x, y: position.y, width: 260, height: 180, rotation: 0, zIndex: 10, locked: false, opacity: 1, assetId: asset.id, name: file.name, mediaType: asset.mediaType, size: file.size, style: { borderRadius: 4, shadow: true } },
+    };
+  }
+
+  if (file.type === 'text/plain' || extension === 'txt') return { kind: 'text', text: await file.text() };
+  if (file.type === 'text/csv' || extension === 'csv') return { kind: 'table', rows: parseCsv(await file.text()) };
+  if (extension === 'json' || extension === 'oah') {
+    const parsed = JSON.parse(await file.text()) as EditorDocument;
+    if (parsed.formatVersion && Array.isArray(parsed.pages)) return { kind: 'document', document: parsed };
+  }
+
+  if (file.size > MAX_ATTACHMENT_BYTES) throw new Error('첨부 파일은 50MB 이하만 보관할 수 있습니다.');
+  const asset = await storeAsset(file, file.name, file.type || 'application/octet-stream');
+  const compatibilityNotice = ['hwpx', 'hwp', 'docx', 'xlsx', 'pptx', 'pdf'].includes(extension)
+    ? '내용 변환은 2차 호환 엔진 범위입니다. 현재는 원본 파일을 안전하게 첨부했습니다.'
+    : undefined;
+  return {
+    kind: 'attachment',
+    notice: compatibilityNotice,
+    object: { id: crypto.randomUUID(), type: 'attachment', x: position.x, y: position.y, width: 280, height: 76, rotation: 0, zIndex: 10, locked: false, opacity: 1, assetId: asset.id, name: file.name, mediaType: asset.mediaType, size: file.size },
+  };
+}

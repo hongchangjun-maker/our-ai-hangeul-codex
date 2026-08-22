@@ -1,0 +1,21 @@
+import type { Metadata } from 'next';
+import './globals.css';
+
+export const metadata: Metadata = {
+  title: '우리의 AI 한글',
+  description: '사진은 글을 밀지 않고, AI는 선택한 순간에만 돕는 쉬운 한국형 웹 워드프로세서',
+  openGraph: {
+    title: '우리의 AI 한글',
+    description: '문서는 어렵지 않아야 합니다.',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: '우리의 AI 한글',
+    description: '문서는 어렵지 않아야 합니다.',
+  },
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return <html lang="ko"><body>{children}</body></html>;
+}
