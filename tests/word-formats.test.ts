@@ -43,7 +43,9 @@ describe('word document format boundary', () => {
     const odt = new File([await zip.generateAsync({ type: 'blob' })], 'example.odt', { type: 'application/vnd.oasis.opendocument.text' });
     expect(importedText(await importFile(odt))).toContain('ODT 본문');
     expect(importedText(await importFile(new File(['{\\rtf1\\ansi RTF 본문\\par}'], 'example.rtf')))).toContain('RTF 본문');
-    expect(importedText(await importFile(new File(['<h1>HTML 제목</h1><script>bad()</script><p>HTML 본문</p>'], 'example.html', { type: 'text/html' })))).toContain('HTML 본문');
+    const html = importedText(await importFile(new File(['<h1>HTML 제목</h1><script>bad()</script><p>HTML 본문</p><table><tr><td>표 셀</td></tr></table>'], 'example.html', { type: 'text/html' })));
+    expect(html).toContain('HTML 본문');
+    expect(html).toContain('표 셀');
     expect(importedText(await importFile(new File(['# Markdown 제목\n\n- Markdown 본문'], 'example.md', { type: 'text/markdown' })))).toContain('Markdown 본문');
   });
 

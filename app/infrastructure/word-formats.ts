@@ -36,7 +36,7 @@ function xmlDocument(xml: string) {
 function htmlTextFlow(html: string): RichTextDocument {
   const parsed = new DOMParser().parseFromString(html, 'text/html');
   const lines: Array<{ text: string; level?: number; bullet?: boolean }> = [];
-  for (const element of Array.from(parsed.body.querySelectorAll('h1,h2,h3,p,li'))) {
+  for (const element of Array.from(parsed.body.querySelectorAll('h1,h2,h3,p,li,th,td'))) {
     const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim();
     const tag = element.tagName.toLowerCase();
     lines.push({ text, level: /^h[1-3]$/.test(tag) ? Number(tag[1]) : undefined, bullet: tag === 'li' });
