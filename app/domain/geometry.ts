@@ -14,6 +14,19 @@ export function pageGeometry(page: DocumentPage) {
   return { widthMm, heightMm, widthPx: mmToPx(widthMm), heightPx: mmToPx(heightMm) };
 }
 
+export function fitPageObjects(page: DocumentPage): DocumentPage {
+  const geometry = pageGeometry(page);
+  return {
+    ...page,
+    objects: page.objects.map((object) => {
+      const scale = Math.min(1, geometry.widthPx / object.width, geometry.heightPx / object.height);
+      const width = object.width * scale;
+      const height = object.height * scale;
+      return { ...object, width, height, x: clamp(object.x, 0, geometry.widthPx - width), y: clamp(object.y, 0, geometry.heightPx - height) };
+    }),
+  };
+}
+
 export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 export function snapCoordinate(value: number, candidates: number[], threshold = 6) {

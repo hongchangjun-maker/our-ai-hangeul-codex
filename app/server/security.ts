@@ -38,9 +38,11 @@ export async function verifyPassword(password: string) {
   const [algorithm, iterationText, saltText, expectedText] = encoded.split('$');
   const iterations = Number(iterationText);
   if (algorithm !== 'pbkdf2' || !Number.isSafeInteger(iterations) || iterations < 100_000 || !saltText || !expectedText) return false;
-  const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const derived = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: base64UrlToBytes(saltText), iterations }, key, 256));
-  return timingSafeEqual(derived, base64UrlToBytes(expectedText));
+  try {
+    const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+    const derived = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: base64UrlToBytes(saltText), iterations }, key, 256));
+    return timingSafeEqual(derived, base64UrlToBytes(expectedText));
+  } catch { return false; }
 }
 
 export async function createAdminSession(request: Request) {
@@ -67,9 +69,9 @@ export async function isAdmin(request: Request) {
   if (!secret || !token) return false;
   const [payload, signature] = token.split('.');
   if (!payload || !signature) return false;
-  const expected = await hmac(payload, secret);
-  if (!timingSafeEqual(expected, base64UrlToBytes(signature))) return false;
   try {
+    const expected = await hmac(payload, secret);
+    if (!timingSafeEqual(expected, base64UrlToBytes(signature))) return false;
     const parsed = JSON.parse(decoder.decode(base64UrlToBytes(payload))) as { exp?: number };
     return typeof parsed.exp === 'number' && parsed.exp > Date.now();
   } catch { return false; }

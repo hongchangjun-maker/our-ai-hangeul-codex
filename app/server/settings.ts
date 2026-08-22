@@ -1,4 +1,5 @@
 import { getEnv } from './env';
+import { DEFAULT_FONT_FAMILY, isBundledFont } from '../domain/font-families';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -17,7 +18,7 @@ export const DEFAULT_SETTINGS: RuntimeSettings = {
   reasoning: 'low',
   maxOutputTokens: 2400,
   autoRouting: true,
-  defaultFont: 'Noto Sans KR',
+  defaultFont: DEFAULT_FONT_FAMILY,
   autosaveDelayMs: 900,
 };
 
@@ -59,7 +60,14 @@ export async function getRuntimeSettings() {
   if (!row) return DEFAULT_SETTINGS;
   try {
     const candidate = JSON.parse(row.value) as Partial<RuntimeSettings>;
-    return { ...DEFAULT_SETTINGS, ...candidate };
+    return {
+      model: models.some((model) => model[0] === candidate.model) ? candidate.model! : DEFAULT_SETTINGS.model,
+      reasoning: ['none', 'low', 'medium', 'high'].includes(candidate.reasoning ?? '') ? candidate.reasoning! : DEFAULT_SETTINGS.reasoning,
+      maxOutputTokens: Number.isInteger(candidate.maxOutputTokens) && (candidate.maxOutputTokens ?? 0) >= 128 && (candidate.maxOutputTokens ?? 0) <= 16_000 ? candidate.maxOutputTokens! : DEFAULT_SETTINGS.maxOutputTokens,
+      autoRouting: typeof candidate.autoRouting === 'boolean' ? candidate.autoRouting : DEFAULT_SETTINGS.autoRouting,
+      defaultFont: typeof candidate.defaultFont === 'string' && isBundledFont(candidate.defaultFont) ? candidate.defaultFont : DEFAULT_SETTINGS.defaultFont,
+      autosaveDelayMs: Number.isInteger(candidate.autosaveDelayMs) && (candidate.autosaveDelayMs ?? 0) >= 500 && (candidate.autosaveDelayMs ?? 0) <= 10_000 ? candidate.autosaveDelayMs! : DEFAULT_SETTINGS.autosaveDelayMs,
+    };
   } catch { return DEFAULT_SETTINGS; }
 }
 

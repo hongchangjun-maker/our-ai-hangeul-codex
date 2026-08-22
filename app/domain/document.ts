@@ -189,7 +189,7 @@ const templateContent: Record<string, RichTextDocument> = {
   minutes: { type: 'doc', content: [heading('회의록'), paragraph('일시 · 장소 · 참석자'), heading('회의 안건', 2), paragraph('1. 안건을 입력하세요.'), heading('결정 사항', 2), paragraph('회의에서 결정된 내용을 작성하세요.'), heading('후속 일정', 2), paragraph('담당자와 기한을 작성하세요.')] },
 };
 
-export function createDocument(templateId = 'blank'): EditorDocument {
+export function createDocument(templateId = 'blank', defaults?: { defaultFont?: string; autosaveDelayMs?: number }): EditorDocument {
   const now = new Date().toISOString();
   const names: Record<string, string> = { blank: '새 문서', report: '새 보고서', official: '새 공문', minutes: '새 회의록' };
   const template = templateDefaults[templateId] ?? templateDefaults.blank;
@@ -201,7 +201,7 @@ export function createDocument(templateId = 'blank'): EditorDocument {
     name: names[templateId] ?? '새 문서',
     createdAt: now,
     updatedAt: now,
-    settings: { defaultFont: style.defaultFont, defaultFontSize: style.defaultFontSize, headingFont: style.headingFont, headingColor: style.headingColor, lineHeight: style.lineHeight, documentStyleId: style.id, snapEnabled: true, guidesEnabled: true, autosaveDelayMs: 900 },
+    settings: { defaultFont: defaults?.defaultFont || style.defaultFont, defaultFontSize: style.defaultFontSize, headingFont: style.headingFont, headingColor: style.headingColor, lineHeight: style.lineHeight, documentStyleId: style.id, snapEnabled: true, guidesEnabled: true, autosaveDelayMs: defaults?.autosaveDelayMs ?? 900 },
     pages: [createPage(content, template.preset, template.orientation, template.margins)],
     fonts: ['Pretendard', 'SUIT', 'Gowun Dodum', 'Gowun Batang', 'Black Han Sans', 'Jua', 'Nanum Pen Script', 'Inter', 'Roboto', 'Open Sans', 'Montserrat', 'Lora', 'Source Serif 4', 'Playfair Display', 'JetBrains Mono'],
     comments: [],
@@ -216,6 +216,38 @@ export function duplicatePage(page: DocumentPage): DocumentPage {
   };
 }
 
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringValue(value: unknown, max = 256) {
+  return typeof value === 'string' && value.length > 0 && value.length <= max;
+}
+
+function numberValue(value: unknown, min: number, max: number) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
+}
+
+function validateDocumentShape(value: EditorDocument) {
+  if (!stringValue(value.id) || !stringValue(value.name, 500) || !stringValue(value.createdAt) || !stringValue(value.updatedAt)) throw new Error('문서 식별 정보가 올바르지 않습니다.');
+  const settings = record(value.settings);
+  const styleIds: DocumentStyleId[] = ['modern', 'report', 'classic', 'presentation', 'code'];
+  if (!settings || !stringValue(settings.defaultFont, 128) || !stringValue(settings.headingFont, 128) || !numberValue(settings.defaultFontSize, 6, 96) || !numberValue(settings.lineHeight, 0.8, 4) || !styleIds.includes(settings.documentStyleId as DocumentStyleId) || typeof settings.snapEnabled !== 'boolean' || typeof settings.guidesEnabled !== 'boolean' || !numberValue(settings.autosaveDelayMs, 500, 10_000)) throw new Error('문서 기본 설정이 올바르지 않습니다.');
+  if (!Array.isArray(value.pages) || value.pages.length === 0 || value.pages.length > 500) throw new Error('문서 페이지 수가 올바르지 않습니다.');
+  for (const page of value.pages) {
+    const raw = record(page);
+    const margins = record(raw?.margins);
+    const textFlow = record(raw?.textFlow);
+    if (!raw || !stringValue(raw.id) || typeof raw.preset !== 'string' || !(raw.preset in PAGE_PRESETS) || !['portrait', 'landscape'].includes(String(raw.orientation)) || !margins || !['top', 'right', 'bottom', 'left'].every((edge) => numberValue(margins[edge], 0, 500)) || !stringValue(raw.background, 128) || textFlow?.type !== 'doc' || (textFlow.content !== undefined && !Array.isArray(textFlow.content)) || !Array.isArray(raw.objects) || raw.objects.length > 2_000) throw new Error('문서 페이지 데이터가 올바르지 않습니다.');
+    for (const object of raw.objects) {
+      const item = record(object);
+      if (!item || !stringValue(item.id) || !['image', 'attachment', 'text-box', 'shape'].includes(String(item.type)) || !numberValue(item.x, -10_000, 100_000) || !numberValue(item.y, -10_000, 100_000) || !numberValue(item.width, 1, 100_000) || !numberValue(item.height, 1, 100_000) || !numberValue(item.rotation, -360_000, 360_000) || !numberValue(item.zIndex, -1_000_000, 1_000_000) || typeof item.locked !== 'boolean' || !numberValue(item.opacity, 0, 1)) throw new Error('문서 개체 데이터가 올바르지 않습니다.');
+    }
+  }
+  if (!Array.isArray(value.fonts) || !value.fonts.every((font) => typeof font === 'string') || !Array.isArray(value.comments)) throw new Error('문서 부가 정보가 올바르지 않습니다.');
+  return structuredClone(value);
+}
+
 export function migrateDocument(input: unknown): EditorDocument {
   if (!input || typeof input !== 'object') throw new Error('문서 데이터가 올바르지 않습니다.');
   const candidate = input as Partial<EditorDocument>;
@@ -224,7 +256,7 @@ export function migrateDocument(input: unknown): EditorDocument {
   if (candidate.formatVersion === '1.0.0') {
     const style = documentStylePreset();
     const legacySettings: Partial<EditorDocument['settings']> = candidate.settings ?? {};
-    return {
+    return validateDocumentShape({
       ...candidate,
       formatVersion: DOCUMENT_FORMAT_VERSION,
       settings: {
@@ -238,8 +270,8 @@ export function migrateDocument(input: unknown): EditorDocument {
         guidesEnabled: legacySettings.guidesEnabled ?? true,
         autosaveDelayMs: legacySettings.autosaveDelayMs ?? 900,
       },
-    } as EditorDocument;
+    } as EditorDocument);
   }
   if (candidate.formatVersion !== DOCUMENT_FORMAT_VERSION) throw new Error(`지원하지 않는 문서 버전입니다: ${candidate.formatVersion ?? '알 수 없음'}`);
-  return candidate as EditorDocument;
+  return validateDocumentShape(candidate as EditorDocument);
 }

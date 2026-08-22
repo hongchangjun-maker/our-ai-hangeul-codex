@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDocument, duplicatePage, migrateDocument } from '../app/domain/document';
+import { fitPageObjects, pageGeometry } from '../app/domain/geometry';
 
 describe('document domain', () => {
   it('creates a versioned A4 document from each first-run template', () => {
@@ -33,5 +34,29 @@ describe('document domain', () => {
     expect(migrated.formatVersion).toBe('1.1.0');
     expect(migrated.settings.documentStyleId).toBe('modern');
     expect(migrated.settings.headingFont).toBe('Pretendard');
+  });
+
+  it('applies administrator defaults only to new documents', () => {
+    const document = createDocument('blank', { defaultFont: 'SUIT', autosaveDelayMs: 2000 });
+    expect(document.settings.defaultFont).toBe('SUIT');
+    expect(document.settings.autosaveDelayMs).toBe(2000);
+  });
+
+  it('rejects malformed current documents before page geometry can crash', () => {
+    const document = createDocument();
+    expect(() => migrateDocument({ ...document, pages: [{ ...document.pages[0], preset: 'UNKNOWN' }] })).toThrow('페이지 데이터');
+    expect(() => migrateDocument({ ...document, pages: [{ ...document.pages[0], objects: [{ id: 'bad', type: 'shape', x: Number.NaN }] }] })).toThrow('개체 데이터');
+  });
+
+  it('keeps free objects inside a resized or rotated page', () => {
+    const page = createDocument().pages[0];
+    page.preset = 'A5';
+    page.objects = [{ id: 'shape', type: 'shape', x: 900, y: -10, width: 900, height: 1200, rotation: 0, zIndex: 1, locked: false, opacity: 1 }];
+    const fitted = fitPageObjects(page);
+    const geometry = pageGeometry(fitted);
+    expect(fitted.objects[0].x).toBeGreaterThanOrEqual(0);
+    expect(fitted.objects[0].y).toBeGreaterThanOrEqual(0);
+    expect(fitted.objects[0].x + fitted.objects[0].width).toBeLessThanOrEqual(geometry.widthPx);
+    expect(fitted.objects[0].y + fitted.objects[0].height).toBeLessThanOrEqual(geometry.heightPx);
   });
 });

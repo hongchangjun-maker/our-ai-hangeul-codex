@@ -8,6 +8,7 @@ const schema = z.object({ apiKey: z.string().min(20).max(500).optional(), model:
 export async function POST(request: Request) {
   if (!await isAdmin(request)) return json({ code: 'UNAUTHORIZED', message: '관리자 인증이 필요합니다.' }, 401);
   if (!validSameOrigin(request) || !isJsonRequest(request)) return json({ code: 'INVALID_REQUEST', message: '허용되지 않은 요청입니다.' }, 403);
+  if (Number(request.headers.get('content-length') || 0) > 4096) return json({ code: 'REQUEST_TOO_LARGE', message: '요청이 너무 큽니다.' }, 413);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return json({ code: 'VALIDATION_ERROR', message: '모델과 API Key를 확인해 주세요.' }, 400);
   try {

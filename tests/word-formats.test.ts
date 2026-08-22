@@ -1,8 +1,9 @@
 import { Document, Packer, Paragraph } from 'docx';
 import JSZip from 'jszip';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import { createDocument } from '../app/domain/document';
+import { createDocument, createPage } from '../app/domain/document';
 import { exportHwpx, exportOdt } from '../app/infrastructure/export-service';
+import { buildHwpxBlob } from '../app/infrastructure/hwpx-export';
 import { importFile } from '../app/infrastructure/file-import';
 
 const downloadBlobs: Blob[] = [];
@@ -11,7 +12,9 @@ const originalRevokeObjectUrl = URL.revokeObjectURL;
 
 Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: (blob: Blob) => { downloadBlobs.push(blob); return `blob:test-${downloadBlobs.length}`; } });
 Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: () => undefined });
-vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+  expect(this.isConnected).toBe(true);
+});
 
 afterEach(() => { downloadBlobs.length = 0; });
 
@@ -62,6 +65,44 @@ describe('word document format boundary', () => {
     expect(await odtZip.file('mimetype')?.async('text')).toBe('application/vnd.oasis.opendocument.text');
     expect(importedText(await importFile(new File([downloadBlobs[0]], 'roundtrip.hwpx')))).toContain('보고서 제목');
     expect(importedText(await importFile(new File([downloadBlobs[1]], 'roundtrip.odt')))).toContain('보고서 제목');
+  });
+
+  it('writes a Hancom-shaped multi-section HWPX package with page layout definitions', async () => {
+    const document = createDocument('report');
+    document.pages.push(createPage({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '둘째 쪽' }] }] }, 'A5', 'landscape'));
+    const blob = await buildHwpxBlob(document);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    expect(view.getUint32(0, true)).toBe(0x04034b50);
+    expect(view.getUint16(8, true)).toBe(0);
+    const nameLength = view.getUint16(26, true);
+    expect(new TextDecoder().decode(bytes.slice(30, 30 + nameLength))).toBe('mimetype');
+
+    const zip = await JSZip.loadAsync(bytes);
+    const header = await zip.file('Contents/header.xml')!.async('text');
+    const content = await zip.file('Contents/content.hpf')!.async('text');
+    const firstSection = await zip.file('Contents/section0.xml')!.async('text');
+    const secondSection = await zip.file('Contents/section1.xml')!.async('text');
+    const version = await zip.file('version.xml')!.async('text');
+    expect(zip.file('Contents/settings.xml')).toBeTruthy();
+    expect(header).toContain('<hh:refList>');
+    expect(header).toContain('<hh:charPr id="0"');
+    expect(header).toContain('<hh:paraPr id="0"');
+    expect(header).toContain('<hh:style id="0"');
+    expect(content).toContain('<opf:itemref idref="section0"/>');
+    expect(content).toContain('<opf:itemref idref="section1"/>');
+    expect(content).not.toContain('<opf:itemref idref="header"/>');
+    expect(firstSection).toContain('<hp:secPr');
+    expect(firstSection).toContain('<hp:pagePr landscape="NARROWLY"');
+    expect(firstSection).toContain('top="7200"');
+    expect(secondSection).toContain('<hp:pagePr landscape="WIDELY"');
+    expect(secondSection).toContain('둘째 쪽');
+    expect(version).toContain('targetApplication="WORDPROC"');
+    expect(version).toContain('http://www.hancom.co.kr/hwpml/2011/app');
+    for (const path of ['META-INF/container.xml', 'META-INF/manifest.xml', 'Contents/content.hpf', 'Contents/header.xml', 'Contents/settings.xml', 'Contents/section0.xml', 'Contents/section1.xml', 'version.xml']) {
+      const source = await zip.file(path)!.async('text');
+      expect(new DOMParser().parseFromString(source, 'application/xml').querySelector('parsererror'), path).toBeNull();
+    }
   });
 });
 

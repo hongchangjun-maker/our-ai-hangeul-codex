@@ -1,18 +1,11 @@
 import type { EditorDocument, RichTextDocument } from '../domain/document';
 import type { ParagraphChild, TextRun as DocxTextRun } from 'docx';
 import { pageGeometry } from '../domain/geometry';
+import { downloadBlob } from './download';
+import { buildHwpxBlob } from './hwpx-export';
 
 function safeName(name: string) {
   return (name.trim() || '새 문서').replace(/[\\/:*?"<>|]/g, '_');
-}
-
-function download(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const anchor = globalThis.document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function textFromNode(node: unknown): string {
@@ -52,11 +45,11 @@ export function documentToText(document: EditorDocument) {
 }
 
 export function exportSource(document: EditorDocument) {
-  download(new Blob([JSON.stringify(document, null, 2)], { type: 'application/json' }), `${safeName(document.name)}.oah.json`);
+  downloadBlob(new Blob([JSON.stringify(document, null, 2)], { type: 'application/json' }), `${safeName(document.name)}.oah.json`);
 }
 
 export function exportText(document: EditorDocument) {
-  download(new Blob([documentToText(document)], { type: 'text/plain;charset=utf-8' }), `${safeName(document.name)}.txt`);
+  downloadBlob(new Blob([documentToText(document)], { type: 'text/plain;charset=utf-8' }), `${safeName(document.name)}.txt`);
 }
 
 type DocumentBlock = { text: string; heading?: number; bullet?: boolean; pageBreak?: boolean };
@@ -75,7 +68,7 @@ function documentBlocks(document: EditorDocument): DocumentBlock[] {
 
 export function exportMarkdown(document: EditorDocument) {
   const markdown = documentBlocks(document).map((block) => block.pageBreak ? '\n---\n' : `${block.heading ? `${'#'.repeat(Math.min(3, block.heading))} ` : block.bullet ? '- ' : ''}${block.text}`).join('\n\n');
-  download(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }), `${safeName(document.name)}.md`);
+  downloadBlob(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }), `${safeName(document.name)}.md`);
 }
 
 function rtfEscape(value: string) {
@@ -88,7 +81,7 @@ function rtfEscape(value: string) {
 
 export function exportRtf(document: EditorDocument) {
   const body = documentBlocks(document).map((block) => block.pageBreak ? '\\page' : `${block.heading ? `\\b\\fs${32 - (block.heading - 1) * 4} ` : ''}${rtfEscape(block.bullet ? `• ${block.text}` : block.text)}${block.heading ? '\\b0\\fs22' : ''}\\par`).join('\n');
-  download(new Blob([`{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\viewkind4\\uc1\\pard\\f0\\fs22\n${body}\n}`], { type: 'application/rtf' }), `${safeName(document.name)}.rtf`);
+  downloadBlob(new Blob([`{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\viewkind4\\uc1\\pard\\f0\\fs22\n${body}\n}`], { type: 'application/rtf' }), `${safeName(document.name)}.rtf`);
 }
 
 function escapeXml(value: string) {
@@ -100,7 +93,7 @@ async function packageDownload(files: Array<{ name: string; content: string; sto
   const zip = new JSZip();
   files.forEach((file) => zip.file(file.name, file.content, { compression: file.store ? 'STORE' : 'DEFLATE' }));
   const archive = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-  download(new Blob([archive], { type }), filename);
+  downloadBlob(new Blob([archive], { type }), filename);
 }
 
 export async function exportOdt(document: EditorDocument) {
@@ -115,22 +108,8 @@ export async function exportOdt(document: EditorDocument) {
   ], `${safeName(document.name)}.odt`, 'application/vnd.oasis.opendocument.text');
 }
 
-function hwpxSection(document: EditorDocument) {
-  const paragraphs = documentBlocks(document).filter((block) => !block.pageBreak).map((block, index) => `<hp:p id="${index}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>${escapeXml(block.bullet ? `• ${block.text}` : block.text)}</hp:t></hp:run></hp:p>`).join('');
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">${paragraphs || '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t></hp:t></hp:run></hp:p>'}</hs:sec>`;
-}
-
 export async function exportHwpx(document: EditorDocument) {
-  const contentHpf = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><opf:package xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/"><opf:metadata><dc:title>${escapeXml(document.name)}</dc:title></opf:metadata><opf:manifest><opf:item id="header" href="header.xml" media-type="application/xml"/><opf:item id="section0" href="section0.xml" media-type="application/xml"/><opf:item id="version" href="../version.xml" media-type="application/xml"/></opf:manifest><opf:spine><opf:itemref idref="header"/><opf:itemref idref="section0"/></opf:spine></opf:package>`;
-  const header = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" version="1.3.0" secCnt="1"><hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/></hh:head>`;
-  const container = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf"><ocf:rootfiles><ocf:rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/></ocf:rootfiles></ocf:container>`;
-  const manifest = `<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"><manifest:file-entry manifest:full-path="/" manifest:media-type="application/hwp+zip"/><manifest:file-entry manifest:full-path="Contents/content.hpf" manifest:media-type="application/hwpml-package+xml"/><manifest:file-entry manifest:full-path="Contents/header.xml" manifest:media-type="application/xml"/><manifest:file-entry manifest:full-path="Contents/section0.xml" manifest:media-type="application/xml"/></manifest:manifest>`;
-  await packageDownload([
-    { name: 'mimetype', content: 'application/hwp+zip', store: true },
-    { name: 'META-INF/container.xml', content: container }, { name: 'META-INF/manifest.xml', content: manifest },
-    { name: 'Contents/content.hpf', content: contentHpf }, { name: 'Contents/header.xml', content: header }, { name: 'Contents/section0.xml', content: hwpxSection(document) },
-    { name: 'version.xml', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" targetApplication="WORDPROCESSOR" major="5" minor="0" micro="5" buildNumber="0" os="1" xmlVersion="1.4" application="Hancom Office Hangul" appVersion="9, 1, 1, 5656 WIN32LEWindows_Unknown_Version"/>' },
-  ], `${safeName(document.name)}.hwpx`, 'application/hwp+zip');
+  downloadBlob(await buildHwpxBlob(document), `${safeName(document.name)}.hwpx`);
 }
 
 export function exportHtml(document: EditorDocument, pageHtml: string[]) {
@@ -140,7 +119,7 @@ export function exportHtml(document: EditorDocument, pageHtml: string[]) {
     return `<section class="page" aria-label="${index + 1}쪽" style="width:${geometry.widthMm.toFixed(1)}mm;min-height:${geometry.heightMm.toFixed(1)}mm;padding:${page.margins.top.toFixed(1)}mm ${page.margins.right.toFixed(1)}mm ${page.margins.bottom.toFixed(1)}mm ${page.margins.left.toFixed(1)}mm;">${html}</section>`;
   }).join('\n');
   const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(document.name)}</title><style>body{margin:0;background:#eee;font-family:"Noto Sans KR","Malgun Gothic",sans-serif}.page{box-sizing:border-box;margin:10mm auto;background:white;line-height:1.7}.page:last-of-type{page-break-after:auto;}@media print{body{background:white}.page{margin:0;page-break-after:always}}</style></head><body>${pages}</body></html>`;
-  download(new Blob([html], { type: 'text/html;charset=utf-8' }), `${safeName(document.name)}.html`);
+  downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${safeName(document.name)}.html`);
 }
 
 function textRunsFromNode(node: RichTextNode, fallbackFont: string, TextRun: typeof DocxTextRun): ParagraphChild[] {
@@ -193,7 +172,7 @@ export async function exportDocx(document: EditorDocument) {
     };
   });
   const file = new Document({ sections });
-  download(await Packer.toBlob(file), `${safeName(document.name)}.docx`);
+  downloadBlob(await Packer.toBlob(file), `${safeName(document.name)}.docx`);
 }
 
 function escapeHtml(value: string) {

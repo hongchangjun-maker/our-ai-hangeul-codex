@@ -6,6 +6,7 @@ import { Copy, Download, FileText, Grip, Layers, Lock, LockOpen, RotateCw, Trash
 import { useEffect, useMemo, useState } from 'react';
 import type { DocumentObject } from '../../domain/document';
 import { clamp, snapCoordinate } from '../../domain/geometry';
+import { downloadBlob } from '../../infrastructure/download';
 import { getAsset } from '../../infrastructure/local-storage';
 
 function useAssetUrl(assetId?: string) {
@@ -39,12 +40,7 @@ function ObjectContent({ object }: { object: DocumentObject }) {
       if (!object.assetId) return;
       const asset = await getAsset(object.assetId);
       if (!asset) return;
-      const objectUrl = URL.createObjectURL(asset.blob);
-      const anchor = document.createElement('a');
-      anchor.href = objectUrl;
-      anchor.download = object.name || asset.name;
-      anchor.click();
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      downloadBlob(asset.blob, object.name || asset.name);
     };
     return <button className="attachment-card" type="button" onDoubleClick={() => void download()}><span><FileText size={24} /></span><span><strong>{object.name}</strong><small>{formatBytes(object.size)} · 두 번 눌러 저장</small></span><Download size={16} /></button>;
   }
@@ -56,6 +52,7 @@ export function ObjectLayer({
   objects,
   pageWidth,
   pageHeight,
+  displayScale,
   selectedId,
   snapEnabled,
   guidesEnabled,
@@ -68,6 +65,7 @@ export function ObjectLayer({
   objects: DocumentObject[];
   pageWidth: number;
   pageHeight: number;
+  displayScale: number;
   selectedId: string | null;
   snapEnabled: boolean;
   guidesEnabled: boolean;
@@ -85,17 +83,21 @@ export function ObjectLayer({
     const object = byId.get(id);
     if (!object || object.locked || event.button !== 0) return;
     event.stopPropagation();
+    setContextMenu(null);
     onSelect(id);
     onGestureStart();
     const element = event.currentTarget as HTMLElement;
     element.setPointerCapture(event.pointerId);
+    const layerRect = element.closest('.object-layer')?.getBoundingClientRect();
+    const scaleX = layerRect?.width ? layerRect.width / pageWidth : 1;
+    const scaleY = layerRect?.height ? layerRect.height / pageHeight : scaleX;
     const start = { clientX: event.clientX, clientY: event.clientY, x: object.x, y: object.y };
     const others = objects.filter((item) => item.id !== id);
     const xCandidates = [0, pageWidth / 2 - object.width / 2, pageWidth - object.width, ...others.flatMap((item) => [item.x, item.x + item.width, item.x + item.width / 2 - object.width / 2])];
     const yCandidates = [0, pageHeight / 2 - object.height / 2, pageHeight - object.height, ...others.flatMap((item) => [item.y, item.y + item.height, item.y + item.height / 2 - object.height / 2])];
     const move = (pointer: PointerEvent) => {
-      let x = clamp(start.x + pointer.clientX - start.clientX, 0, pageWidth - object.width);
-      let y = clamp(start.y + pointer.clientY - start.clientY, 0, pageHeight - object.height);
+      let x = clamp(start.x + (pointer.clientX - start.clientX) / scaleX, 0, pageWidth - object.width);
+      let y = clamp(start.y + (pointer.clientY - start.clientY) / scaleY, 0, pageHeight - object.height);
       const nextGuide: { x?: number; y?: number } = {};
       if (snapEnabled && !pointer.altKey) {
         const snappedX = snapCoordinate(x, xCandidates);
@@ -126,12 +128,18 @@ export function ObjectLayer({
     onGestureStart();
     const handle = event.currentTarget as HTMLElement;
     handle.setPointerCapture(event.pointerId);
+    const layerRect = handle.closest('.object-layer')?.getBoundingClientRect();
+    const scaleX = layerRect?.width ? layerRect.width / pageWidth : 1;
+    const scaleY = layerRect?.height ? layerRect.height / pageHeight : scaleX;
     const start = { clientX: event.clientX, clientY: event.clientY, width: object.width, height: object.height };
     const aspect = object.width / object.height;
     const move = (pointer: PointerEvent) => {
-      const width = clamp(start.width + pointer.clientX - start.clientX, 44, pageWidth - object.x);
-      let height = clamp(start.height + pointer.clientY - start.clientY, 36, pageHeight - object.y);
-      if (!pointer.shiftKey && object.type === 'image') height = width / aspect;
+      let width = clamp(start.width + (pointer.clientX - start.clientX) / scaleX, 44, pageWidth - object.x);
+      let height = clamp(start.height + (pointer.clientY - start.clientY) / scaleY, 36, pageHeight - object.y);
+      if (!pointer.shiftKey && object.type === 'image') {
+        width = Math.min(width, (pageHeight - object.y) * aspect);
+        height = width / aspect;
+      }
       onChange(id, { width, height });
     };
     const end = () => {
@@ -152,12 +160,14 @@ export function ObjectLayer({
     onGestureStart();
     const handle = event.currentTarget as HTMLElement;
     handle.setPointerCapture(event.pointerId);
-    const centerX = object.x + object.width / 2;
-    const centerY = object.y + object.height / 2;
     const layerRect = handle.closest('.object-layer')?.getBoundingClientRect();
+    const scaleX = layerRect?.width ? layerRect.width / pageWidth : 1;
+    const scaleY = layerRect?.height ? layerRect.height / pageHeight : scaleX;
+    const centerX = (layerRect?.left ?? 0) + (object.x + object.width / 2) * scaleX;
+    const centerY = (layerRect?.top ?? 0) + (object.y + object.height / 2) * scaleY;
     const move = (pointer: PointerEvent) => {
       if (!layerRect) return;
-      const angle = Math.atan2(pointer.clientY - layerRect.top - centerY, pointer.clientX - layerRect.left - centerX) * 180 / Math.PI + 90;
+      const angle = Math.atan2(pointer.clientY - centerY, pointer.clientX - centerX) * 180 / Math.PI + 90;
       onChange(id, { rotation: pointer.shiftKey ? Math.round(angle / 15) * 15 : Math.round(angle) });
     };
     const end = () => {
@@ -172,7 +182,7 @@ export function ObjectLayer({
   };
 
   return (
-    <div className="object-layer" onPointerDown={(event) => { if (event.target === event.currentTarget) { onSelect(null); setContextMenu(null); } }}>
+    <div className="object-layer" style={{ '--inverse-page-scale': String(1 / displayScale) } as React.CSSProperties} onPointerDown={(event) => { if (event.target === event.currentTarget) { onSelect(null); setContextMenu(null); } }}>
       {guide.x !== undefined && <span className="smart-guide vertical" style={{ left: guide.x }} />}
       {guide.y !== undefined && <span className="smart-guide horizontal" style={{ top: guide.y }} />}
       {objects.slice().sort((a, b) => a.zIndex - b.zIndex).map((object) => {

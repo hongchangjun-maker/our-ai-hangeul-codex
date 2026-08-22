@@ -2,11 +2,12 @@
 
 import { Copy, Layers, Lock, LockOpen, Trash2 } from 'lucide-react';
 import type { DocumentObject } from '../../domain/document';
+import { clamp } from '../../domain/geometry';
 
 type ObjectAction = 'front' | 'back' | 'lock' | 'duplicate' | 'delete' | 'center-x' | 'center-y';
 
 function NumberField({ label, value, min, max, step = 1, onChange }: { label: string; value: number; min: number; max: number; step?: number; onChange: (value: number) => void }) {
-  return <label className="inspector-number"><span>{label}</span><input type="number" value={Math.round(value * 10) / 10} min={min} max={max} step={step} onChange={(event) => Number.isFinite(event.target.valueAsNumber) && onChange(event.target.valueAsNumber)} /></label>;
+  return <label className="inspector-number"><span>{label}</span><input type="number" value={Math.round(value * 10) / 10} min={min} max={max} step={step} onChange={(event) => Number.isFinite(event.target.valueAsNumber) && onChange(clamp(event.target.valueAsNumber, min, max))} /></label>;
 }
 
 export function ObjectInspector({ object, pageWidth, pageHeight, onChange, onAction }: {

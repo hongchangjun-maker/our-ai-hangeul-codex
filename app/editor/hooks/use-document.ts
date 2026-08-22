@@ -58,7 +58,7 @@ export function useDocumentState() {
     recoveryState.markDirty();
   }, []);
 
-  const createNew = useCallback((templateId = 'blank') => replaceDocument(createDocument(templateId)), [replaceDocument]);
+  const createNew = useCallback((templateId = 'blank', defaults?: { defaultFont?: string; autosaveDelayMs?: number }) => replaceDocument(createDocument(templateId, defaults)), [replaceDocument]);
 
   const undoDocument = useCallback(() => {
     const previous = past.current.pop();

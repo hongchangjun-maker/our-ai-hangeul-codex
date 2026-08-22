@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { getModels, getRuntimeSettings, hasStoredOpenAIKey, saveOpenAIKey, saveRuntimeSettings } from '../../../server/settings';
 import { isAdmin, isJsonRequest, json, validSameOrigin } from '../../../server/security';
+import { BUNDLED_FONT_FAMILIES } from '../../../domain/font-families';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +10,7 @@ const schema = z.object({
   reasoning: z.enum(['none', 'low', 'medium', 'high']),
   maxOutputTokens: z.number().int().min(128).max(16_000),
   autoRouting: z.boolean(),
-  defaultFont: z.enum(['Noto Sans KR', 'Noto Serif KR', 'Nanum Gothic', 'Nanum Myeongjo']),
+  defaultFont: z.enum(BUNDLED_FONT_FAMILIES),
   autosaveDelayMs: z.number().int().min(500).max(10_000),
   apiKey: z.string().min(20).max(500).optional(),
 });

@@ -90,7 +90,12 @@ function ReadOnlyObject({ object }: { object: DocumentObject }) {
     if (object.assetId) getAsset(object.assetId).then((asset) => { if (!asset || !active) return; objectUrl = URL.createObjectURL(asset.blob); setUrl(objectUrl); });
     return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [object.assetId]);
-  return <div className="document-object read-only-object" style={{ left: object.x, top: object.y, width: object.width, height: object.height, transform: `rotate(${object.rotation}deg)`, zIndex: object.zIndex, opacity: object.opacity, borderRadius: object.style?.borderRadius, boxShadow: object.style?.shadow ? '0 10px 26px rgba(23,45,38,.18)' : undefined }}>{object.type === 'image' && url ? <img src={url} alt="" /> : <div className="attachment-card"><span><FileText size={22} /></span><span><strong>{object.name || '첨부 파일'}</strong><small>문서 첨부</small></span></div>}</div>;
+  let content: React.ReactNode;
+  if (object.type === 'image') content = url ? <img src={url} alt={object.name || '삽입 이미지'} /> : <span className="asset-loading">이미지 준비 중…</span>;
+  else if (object.type === 'attachment') content = <div className="attachment-card"><span><FileText size={22} /></span><span><strong>{object.name || '첨부 파일'}</strong><small>문서 첨부</small></span></div>;
+  else if (object.type === 'text-box') content = <div className="free-text-box">{object.text || '텍스트 상자'}</div>;
+  else content = <div className="free-shape" />;
+  return <div className="document-object read-only-object" style={{ left: object.x, top: object.y, width: object.width, height: object.height, transform: `rotate(${object.rotation}deg)`, zIndex: object.zIndex, opacity: object.opacity, borderRadius: object.style?.borderRadius, boxShadow: object.style?.shadow ? '0 10px 26px rgba(23,45,38,.18)' : undefined }}>{content}</div>;
 }
 
 export function PageCanvas({
@@ -216,7 +221,7 @@ export function PageCanvas({
           const padding = `${mmToPx(page.margins.top)}px ${mmToPx(page.margins.right)}px ${mmToPx(page.margins.bottom)}px ${mmToPx(page.margins.left)}px`;
           return <div className={index === currentPage ? 'paper-wrapper current' : 'paper-wrapper'} key={page.id} style={{ width: geometry.widthPx * pageScale, height: geometry.heightPx * pageScale }} onClick={() => onCurrentPage(index)}>
           <article className="paper exportable-page" data-page-index={index} aria-label={`${page.preset} 문서 ${index + 1}쪽`} style={{ width: geometry.widthPx, minHeight: geometry.heightPx, transform: `scale(${pageScale})`, background: page.background }} onDrop={(event) => { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); onFiles(event.dataTransfer.files, index, { x: (event.clientX - rect.left) / pageScale, y: (event.clientY - rect.top) / pageScale }); }}>
-            {index === currentPage ? <span className="active-frame-size" style={{ transform: `scale(${1 / pageScale})` }}>
+            {index === currentPage ? <span className="active-frame-size" style={{ '--inverse-page-scale': String(1 / pageScale) } as React.CSSProperties}>
             {showGuides ? <>
                 <button type="button" className="margin-handle top" aria-label={`위쪽 여백 조절 (${Math.round(page.margins.top * 10) / 10}mm)`} onPointerDown={(event) => dragMargin(event, page, index, 'top')} style={{ top: mmToPx(page.margins.top), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }} />
                 <button type="button" className="margin-handle bottom" aria-label={`아래쪽 여백 조절 (${Math.round(page.margins.bottom * 10) / 10}mm)`} onPointerDown={(event) => dragMargin(event, page, index, 'bottom')} style={{ bottom: mmToPx(page.margins.bottom), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }} />
@@ -232,7 +237,7 @@ export function PageCanvas({
             <div className="page-margin" style={{ width: geometry.widthPx, minHeight: geometry.heightPx, padding, fontFamily: document.settings.defaultFont, fontSize: `${document.settings.defaultFontSize}pt`, '--document-heading-font': document.settings.headingFont, '--document-heading-color': document.settings.headingColor, '--document-line-height': String(document.settings.lineHeight) } as React.CSSProperties}>
               {index === currentPage ? <EditorContent editor={editor} /> : <ReadOnlyRichText page={page} />}
             </div>
-              {index === currentPage ? <ObjectLayer objects={page.objects} pageWidth={geometry.widthPx} pageHeight={geometry.heightPx} selectedId={selectedObjectId} snapEnabled={document.settings.snapEnabled} guidesEnabled={document.settings.guidesEnabled} onSelect={onSelectObject} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} onChange={onObjectChange} onAction={onObjectAction} /> : <div className="object-layer read-only-layer">{page.objects.map((object) => <ReadOnlyObject key={object.id} object={object} />)}</div>}
+              {index === currentPage ? <ObjectLayer objects={page.objects} pageWidth={geometry.widthPx} pageHeight={geometry.heightPx} displayScale={pageScale} selectedId={selectedObjectId} snapEnabled={document.settings.snapEnabled} guidesEnabled={document.settings.guidesEnabled} onSelect={onSelectObject} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} onChange={onObjectChange} onAction={onObjectAction} /> : <div className="object-layer read-only-layer">{page.objects.map((object) => <ReadOnlyObject key={object.id} object={object} />)}</div>}
             <span className="page-number">{index + 1}</span>
             </article>
           </div>;

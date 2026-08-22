@@ -15,7 +15,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { AlertTriangle, FileCheck2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { applyDocumentStylePreset, createPage, defaultMarginsForPreset, documentStylePreset, duplicatePage, migrateDocument, type DocumentObject, type DocumentStyleId, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
-import { pageGeometry } from '../domain/geometry';
+import { fitPageObjects, pageGeometry } from '../domain/geometry';
 import { collectDocumentFontFamilies, documentToText } from '../infrastructure/export-service';
 import { importFile } from '../infrastructure/file-import';
 import { listRecentDocuments } from '../infrastructure/local-storage';
@@ -30,6 +30,7 @@ import { FontSize, LineHeight } from './extensions/formatting';
 import { useFontPreferences } from './hooks/use-font-preferences';
 import { useDocumentExport } from './hooks/use-document-export';
 import { useDocumentState } from './hooks/use-document';
+import { useAppDefaults } from './hooks/use-app-defaults';
 
 function paragraphsFromText(text: string): RichTextDocument {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -46,6 +47,7 @@ function rowsToTable(rows: string[][]) {
 
 export function EditorApp() {
   const store = useDocumentState();
+  const { defaults: appDefaults, refresh: refreshAppDefaults } = useAppDefaults();
   const pageLayoutScopeStorageKey = 'our-ai-hangeul:page-layout-scope';
   const pageGuidesStorageKey = 'our-ai-hangeul:show-page-guides';
   const [screen, setScreen] = useState<'welcome' | 'editor'>('welcome');
@@ -143,7 +145,7 @@ export function EditorApp() {
   }, [toast]);
 
   const createNew = (templateId = 'blank') => {
-    store.createNew(templateId);
+    store.createNew(templateId, appDefaults);
     pageIdRef.current = '';
     setCurrentPage(0); setSelectedObjectId(null); setAiOpen(false); setScreen('editor');
   };
@@ -184,7 +186,7 @@ export function EditorApp() {
           setTimeout(() => editor?.chain().focus().insertContent(rowsToTable(result.rows)).run(), 0);
           continue;
         }
-        store.updateDocument((document) => ({ ...document, pages: document.pages.map((page, pageNumber) => pageNumber === pageIndex ? { ...page, objects: [...page.objects, result.object] } : page) }));
+        store.updateDocument((document) => ({ ...document, pages: document.pages.map((page, pageNumber) => pageNumber === pageIndex ? fitPageObjects({ ...page, objects: [...page.objects, result.object] }) : page) }));
         documentActionAt.current = Date.now();
         setSelectedObjectId(result.object.id);
         if ('notice' in result && result.notice) setToast({ type: 'info', message: result.notice });
@@ -203,7 +205,7 @@ export function EditorApp() {
       setSelectedObjectId(null);
     } else if (action === 'duplicate') {
       const copy = { ...structuredClone(object), id: crypto.randomUUID(), x: object.x + 18, y: object.y + 18, zIndex: Math.max(0, ...page.objects.map((item) => item.zIndex)) + 1 };
-      store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => index === currentPage ? { ...item, objects: [...item.objects, copy] } : item) })); setSelectedObjectId(copy.id);
+      store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => index === currentPage ? fitPageObjects({ ...item, objects: [...item.objects, copy] }) : item) })); setSelectedObjectId(copy.id);
     } else {
       const maxZ = Math.max(0, ...page.objects.map((item) => item.zIndex));
       const minZ = Math.min(0, ...page.objects.map((item) => item.zIndex));
@@ -214,7 +216,8 @@ export function EditorApp() {
   };
 
   const addPage = (content?: RichTextDocument) => {
-    const page = createPage(content);
+    const source = store.document.pages[currentPage] ?? store.document.pages[0];
+    const page = createPage(content, source.preset, source.orientation, source.margins);
     store.updateDocument((document) => ({ ...document, pages: [...document.pages, page] }));
     pageIdRef.current = '';
     setCurrentPage(store.document.pages.length); documentActionAt.current = Date.now();
@@ -247,7 +250,7 @@ export function EditorApp() {
     const nextMargins = defaultMarginsForPreset(nextPreset);
     store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => {
       if (pageLayoutScope === 'current' && index !== currentPage) return item;
-      return { ...item, preset: nextPreset, margins: nextMargins };
+      return fitPageObjects({ ...item, preset: nextPreset, margins: nextMargins });
     }) }));
     documentActionAt.current = Date.now();
   };
@@ -257,7 +260,7 @@ export function EditorApp() {
     const nextOrientation: Orientation = page.orientation === 'portrait' ? 'landscape' : 'portrait';
     store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => {
       if (pageLayoutScope === 'current' && index !== currentPage) return item;
-      return { ...item, orientation: nextOrientation };
+      return fitPageObjects({ ...item, orientation: nextOrientation });
     }) }));
     documentActionAt.current = Date.now();
   };
@@ -291,7 +294,7 @@ export function EditorApp() {
       if (modifier && event.altKey && event.key.toLowerCase() === 'g') { event.preventDefault(); setShowPageGuides((value) => !value); }
       if (selectedObjectId && !typing && (event.key === 'Delete' || event.key === 'Backspace')) { event.preventDefault(); objectAction('delete'); }
       if (selectedObjectId && !typing && modifier && event.key.toLowerCase() === 'c') { const object = store.document.pages[currentPageRef.current].objects.find((item) => item.id === selectedObjectId); if (object) objectClipboard.current = structuredClone(object); }
-      if (!typing && modifier && event.key.toLowerCase() === 'v' && objectClipboard.current) { event.preventDefault(); const copy = { ...structuredClone(objectClipboard.current), id: crypto.randomUUID(), x: objectClipboard.current.x + 18, y: objectClipboard.current.y + 18 }; store.updateDocument((document) => ({ ...document, pages: document.pages.map((page, index) => index === currentPageRef.current ? { ...page, objects: [...page.objects, copy] } : page) })); setSelectedObjectId(copy.id); }
+      if (!typing && modifier && event.key.toLowerCase() === 'v' && objectClipboard.current) { event.preventDefault(); const copy = { ...structuredClone(objectClipboard.current), id: crypto.randomUUID(), x: objectClipboard.current.x + 18, y: objectClipboard.current.y + 18 }; store.updateDocument((document) => ({ ...document, pages: document.pages.map((page, index) => index === currentPageRef.current ? fitPageObjects({ ...page, objects: [...page.objects, copy] }) : page) })); setSelectedObjectId(copy.id); }
       if (event.key === 'Escape') setSelectedObjectId(null);
     };
     const wheel = (event: WheelEvent) => { if (!event.ctrlKey) return; event.preventDefault(); setZoom((value) => Math.min(150, Math.max(50, value + (event.deltaY > 0 ? -25 : 25)))); };
@@ -327,7 +330,7 @@ export function EditorApp() {
   if (screen === 'welcome') return <>
     <WelcomeScreen recent={recent} interrupted={store.interrupted} onCreate={createNew} onOpen={openDocument} onFile={(files) => { createNew(); setTimeout(() => void handleFiles(files, 0), 0); }} onAdmin={() => setAdminOpen(true)} />
     {store.interrupted && store.recoveryCandidate && <div className="recovery-banner" role="dialog" aria-label="이전 작업 복구"><AlertTriangle size={21} /><span><strong>이전 작업을 복구할까요?</strong><small>{store.recoveryCandidate.name} · {new Date(store.recoveryCandidate.updatedAt).toLocaleString('ko-KR')}</small></span><button type="button" onClick={() => openDocument(store.recoveryCandidate!)}><FileCheck2 size={16} /> 복구</button><button type="button" className="icon-button" onClick={store.dismissRecovery} aria-label="복구 알림 닫기"><X size={16} /></button></div>}
-    <AdminDialog open={adminOpen} onClose={() => setAdminOpen(false)} />
+    <AdminDialog open={adminOpen} onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} />
   </>;
 
   return <main className="editor-shell">
@@ -395,7 +398,7 @@ export function EditorApp() {
     </section>
     <ExportDialog open={exportOpen} busy={exportBusy} message={exportMessage} fontFamilies={collectDocumentFontFamilies(store.document)} onClose={() => setExportOpen(false)} onExport={(type) => void runExport(type)} />
     <FontLibraryDialog open={fontLibraryOpen} favoriteFonts={favoriteFonts} onClose={() => setFontLibraryOpen(false)} onToggleFavorite={toggleFavoriteFont} onApply={applyFontFromLibrary} />
-    <AdminDialog open={adminOpen} onClose={() => setAdminOpen(false)} />
+    <AdminDialog open={adminOpen} onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} />
     {toast && <div className={`toast ${toast.type}`} role="status"><span>{toast.message}</span><button type="button" onClick={() => setToast(null)} aria-label="알림 닫기"><X size={15} /></button></div>}
   </main>;
 }

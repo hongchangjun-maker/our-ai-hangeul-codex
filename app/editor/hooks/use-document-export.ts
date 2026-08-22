@@ -25,7 +25,7 @@ export function useDocumentExport(document: EditorDocument) {
         if (type === 'docx') await exportDocx(document);
         else if (type === 'hwpx') await exportHwpx(document);
         else await exportOdt(document);
-        setMessage(`${type.toUpperCase()} 저장이 완료되었습니다.`);
+        setMessage(`${type.toUpperCase()} 다운로드를 시작했습니다.`);
       } else {
         setBusy(true);
         const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page'))
