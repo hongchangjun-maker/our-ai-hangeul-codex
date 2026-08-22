@@ -221,7 +221,7 @@ export function PageCanvas({
               {index === currentPage && dragTip ? <span className="margin-tooltip" style={{ left: dragTip.x, top: dragTip.y }}>{dragTip.text}</span> : null}
               </> : null}
             </span> : <span className="active-frame-size" aria-hidden="true" />}
-            <div className="page-margin" style={{ width: geometry.widthPx, minHeight: geometry.heightPx, padding }}>
+            <div className="page-margin" style={{ width: geometry.widthPx, minHeight: geometry.heightPx, padding, fontFamily: document.settings.defaultFont }}>
               {index === currentPage ? <EditorContent editor={editor} /> : <ReadOnlyRichText page={page} />}
             </div>
               {index === currentPage ? <ObjectLayer objects={page.objects} pageWidth={geometry.widthPx} pageHeight={geometry.heightPx} selectedId={selectedObjectId} snapEnabled={document.settings.snapEnabled} guidesEnabled={document.settings.guidesEnabled} onSelect={onSelectObject} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} onChange={onObjectChange} /> : <div className="object-layer read-only-layer">{page.objects.map((object) => <ReadOnlyObject key={object.id} object={object} />)}</div>}

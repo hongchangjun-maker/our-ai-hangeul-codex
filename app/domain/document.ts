@@ -153,9 +153,9 @@ export function createDocument(templateId = 'blank'): EditorDocument {
     name: names[templateId] ?? '새 문서',
     createdAt: now,
     updatedAt: now,
-    settings: { defaultFont: 'Noto Sans KR', defaultFontSize: 11, snapEnabled: true, guidesEnabled: true, autosaveDelayMs: 900 },
+    settings: { defaultFont: 'Pretendard', defaultFontSize: 11, snapEnabled: true, guidesEnabled: true, autosaveDelayMs: 900 },
     pages: [createPage(content, template.preset, template.orientation, template.margins)],
-    fonts: ['Noto Sans KR', 'Noto Serif KR', 'Nanum Gothic', 'Nanum Myeongjo'],
+    fonts: ['Pretendard', 'SUIT', 'Gowun Dodum', 'Gowun Batang', 'Black Han Sans', 'Jua', 'Nanum Pen Script', 'Inter', 'Roboto', 'Open Sans', 'Montserrat', 'Lora', 'Source Serif 4', 'Playfair Display', 'JetBrains Mono'],
     comments: [],
   };
 }

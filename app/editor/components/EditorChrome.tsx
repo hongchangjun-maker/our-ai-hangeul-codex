@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { PAGE_PRESET_LABELS, type DocumentObject, type PagePreset } from '../../domain/document';
+import { DEFAULT_FONT_FAMILY, ENGLISH_FONTS, FEATURED_FONT_FAMILIES, KOREAN_FONTS, fontLabel, isBundledFont } from '../font-catalog';
 
 function ToolButton({ label, children, onClick, active, disabled }: { label: string; children: React.ReactNode; onClick?: () => void; active?: boolean; disabled?: boolean }) {
   return <button className={active ? 'tool-button active' : 'tool-button'} type="button" onClick={onClick} disabled={disabled} aria-label={label} title={label}>{children}</button>;
@@ -111,10 +112,23 @@ export function EditorChrome({
 }) {
   const [menu, setMenu] = useState('글자');
   const menus = ['파일', '글자', '삽입', '표', '페이지', 'AI', '보기'];
+  const selectedFont = editor?.getAttributes('textStyle').fontFamily || DEFAULT_FONT_FAMILY;
+  const applyFont = (family: string) => editor?.chain().focus().setFontFamily(family).run();
 
   const textTools = <>
-    <select className="select-tool" aria-label="글꼴" value={editor?.getAttributes('textStyle').fontFamily || 'Noto Sans KR'} onChange={(event) => editor?.chain().focus().setFontFamily(event.target.value).run()}>
-      <option>Noto Sans KR</option><option>Noto Serif KR</option><option>Nanum Gothic</option><option>Nanum Myeongjo</option><option>Malgun Gothic</option>
+    <div className="quick-fonts" aria-label="자주 쓰는 글꼴">
+      <span>바로 쓰기</span>
+      {FEATURED_FONT_FAMILIES.map((family) => <button key={family} className={selectedFont === family ? 'quick-font-button active' : 'quick-font-button'} type="button" style={{ fontFamily: family }} onClick={() => applyFont(family)} aria-label={`${fontLabel(family)} 글꼴 적용`}>{fontLabel(family)}</button>)}
+    </div>
+    <span className="divider" />
+    <select className="select-tool" aria-label="글꼴" value={selectedFont} onChange={(event) => applyFont(event.target.value)}>
+      <optgroup label="한글 글꼴">
+        {KOREAN_FONTS.map((font) => <option key={font.family} value={font.family}>{font.label} · {font.description}</option>)}
+      </optgroup>
+      <optgroup label="English fonts">
+        {ENGLISH_FONTS.map((font) => <option key={font.family} value={font.family}>{font.label} · {font.description}</option>)}
+      </optgroup>
+      {!isBundledFont(selectedFont) && <optgroup label="기존 문서 글꼴"><option value={selectedFont}>{selectedFont}</option></optgroup>}
     </select>
     <select className="size-tool" aria-label="글자 크기" value={(editor?.getAttributes('textStyle').fontSize || '11pt').replace('pt', '')} onChange={(event) => editor?.chain().focus().setFontSize(`${event.target.value}pt`).run()}>
       {[8,9,10,11,12,14,16,18,20,24,28,32,40,48].map((size) => <option key={size}>{size}</option>)}

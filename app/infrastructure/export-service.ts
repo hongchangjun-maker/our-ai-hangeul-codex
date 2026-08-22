@@ -51,6 +51,7 @@ function escapeHtml(value: string) {
 export async function exportPdf(document: EditorDocument, pages: { page: HTMLElement; pageIndex: number }[], onProgress?: (message: string) => void) {
   if (!pages.length) throw new Error('내보낼 페이지를 찾지 못했습니다.');
   onProgress?.('PDF 페이지를 준비하는 중…');
+  await globalThis.document.fonts?.ready;
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
   const pageInfos = pages.map(({ pageIndex }) => {
     const page = document.pages[pageIndex];

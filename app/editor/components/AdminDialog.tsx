@@ -2,6 +2,7 @@
 
 import { Bot, CheckCircle2, KeyRound, Loader2, LockKeyhole, Save, Server, Settings, ShieldCheck, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { DEFAULT_FONT_FAMILY, ENGLISH_FONTS, KOREAN_FONTS } from '../font-catalog';
 
 interface ModelInfo {
   id: string;
@@ -22,7 +23,7 @@ interface AdminSettings {
   autosaveDelayMs: number;
 }
 
-const initialSettings: AdminSettings = { model: 'gpt-5.6-terra', reasoning: 'low', maxOutputTokens: 2400, hasApiKey: false, autoRouting: true, defaultFont: 'Noto Sans KR', autosaveDelayMs: 900 };
+const initialSettings: AdminSettings = { model: 'gpt-5.6-terra', reasoning: 'low', maxOutputTokens: 2400, hasApiKey: false, autoRouting: true, defaultFont: DEFAULT_FONT_FAMILY, autosaveDelayMs: 900 };
 
 export function AdminDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [configured, setConfigured] = useState<boolean | null>(null);
@@ -95,7 +96,7 @@ export function AdminDialog({ open, onClose }: { open: boolean; onClose: () => v
     {configured && authenticated && <div className="admin-content">
       <section className="admin-summary"><div><span><Server size={18} /></span><strong>앱 서버</strong><small>정상</small></div><div><span><KeyRound size={18} /></span><strong>OpenAI</strong><small>{settings.hasApiKey ? '키 저장됨' : '연결 필요'}</small></div><div><span><Bot size={18} /></span><strong>기본 모델</strong><small>{models.find((model) => model.id === settings.model)?.label || settings.model}</small></div></section>
       <section className="settings-section"><div className="settings-heading"><div><h3>OpenAI 연결</h3><p>키는 서버에서 암호화하며 저장된 값은 다시 표시하지 않습니다.</p></div>{settings.hasApiKey && <span className="connected-badge"><CheckCircle2 size={14} /> 저장됨</span>}</div><label>새 API Key (변경할 때만 입력)<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={settings.hasApiKey ? '저장된 키 유지' : 'sk-…'} autoComplete="off" /></label><div className="form-row"><label>기본 모델<select value={settings.model} onChange={(event) => setSettings({ ...settings, model: event.target.value })}>{models.map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label} · {model.tier}</option>)}</select></label><label>추론 수준<select value={settings.reasoning} onChange={(event) => setSettings({ ...settings, reasoning: event.target.value })}><option value="none">없음</option><option value="low">낮음</option><option value="medium">보통</option><option value="high">높음</option></select></label></div><label className="checkbox-row"><input type="checkbox" checked={settings.autoRouting} onChange={(event) => setSettings({ ...settings, autoRouting: event.target.checked })} /><span><strong>AI 자동 모델 선택</strong><small>맞춤법·제목은 Luna, 일반 문서 작성은 Terra, 중요 전문 분석은 Sol을 사용합니다.</small></span></label><button className="secondary-action" type="button" disabled={busy || (!settings.hasApiKey && !apiKey.trim())} onClick={() => void testConnection()}>{busy ? <Loader2 className="spin" size={16} /> : <Bot size={16} />} 연결 테스트 (실제 API 호출)</button></section>
-      <section className="settings-section"><div className="settings-heading"><div><h3>워드 기본 설정</h3><p>새 문서에 적용되는 기본값입니다.</p></div></div><div className="form-row"><label>기본 글꼴<select value={settings.defaultFont} onChange={(event) => setSettings({ ...settings, defaultFont: event.target.value })}><option>Noto Sans KR</option><option>Noto Serif KR</option><option>Nanum Gothic</option><option>Nanum Myeongjo</option></select></label><label>자동 저장<select value={settings.autosaveDelayMs} onChange={(event) => setSettings({ ...settings, autosaveDelayMs: Number(event.target.value) })}><option value={500}>0.5초</option><option value={900}>0.9초</option><option value={2000}>2초</option></select></label></div></section>
+      <section className="settings-section"><div className="settings-heading"><div><h3>워드 기본 설정</h3><p>새 문서에 적용되는 기본값입니다.</p></div></div><div className="form-row"><label>기본 글꼴<select value={settings.defaultFont} onChange={(event) => setSettings({ ...settings, defaultFont: event.target.value })}><optgroup label="한글 글꼴">{KOREAN_FONTS.map((font) => <option key={font.family} value={font.family}>{font.label}</option>)}</optgroup><optgroup label="English fonts">{ENGLISH_FONTS.map((font) => <option key={font.family} value={font.family}>{font.label}</option>)}</optgroup></select></label><label>자동 저장<select value={settings.autosaveDelayMs} onChange={(event) => setSettings({ ...settings, autosaveDelayMs: Number(event.target.value) })}><option value={500}>0.5초</option><option value={900}>0.9초</option><option value={2000}>2초</option></select></label></div></section>
       <button className="primary-action save-settings" type="button" onClick={() => void save()} disabled={busy}>{busy ? <Loader2 className="spin" size={17} /> : <Save size={17} />} 설정 저장</button>
     </div>}
     {(error || message) && <p className={error ? 'dialog-message error' : 'dialog-message success'} role="status">{error || message}</p>}
