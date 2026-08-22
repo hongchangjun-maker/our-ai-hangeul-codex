@@ -93,8 +93,8 @@ function ReadOnlyObject({ object }: { object: DocumentObject }) {
   let content: React.ReactNode;
   if (object.type === 'image') content = url ? <img src={url} alt={object.name || '삽입 이미지'} /> : <span className="asset-loading">이미지 준비 중…</span>;
   else if (object.type === 'attachment') content = <div className="attachment-card"><span><FileText size={22} /></span><span><strong>{object.name || '첨부 파일'}</strong><small>문서 첨부</small></span></div>;
-  else if (object.type === 'text-box') content = <div className="free-text-box">{object.text || '텍스트 상자'}</div>;
-  else content = <div className="free-shape" />;
+  else if (object.type === 'text-box') content = <div className="free-text-box" style={{ background: object.style?.background }}>{object.text || '텍스트 상자'}</div>;
+  else content = <div className="free-shape" style={{ background: object.style?.background, borderColor: object.style?.borderColor, borderWidth: object.style?.borderWidth, borderRadius: object.style?.borderRadius }} />;
   return <div className="document-object read-only-object" style={{ left: object.x, top: object.y, width: object.width, height: object.height, transform: `rotate(${object.rotation}deg)`, zIndex: object.zIndex, opacity: object.opacity, borderRadius: object.style?.borderRadius, boxShadow: object.style?.shadow ? '0 10px 26px rgba(23,45,38,.18)' : undefined }}>{content}</div>;
 }
 
@@ -219,7 +219,7 @@ export function PageCanvas({
           const geometry = pageGeometry(page);
           const pageScale = fittedScale(page);
           const padding = `${mmToPx(page.margins.top)}px ${mmToPx(page.margins.right)}px ${mmToPx(page.margins.bottom)}px ${mmToPx(page.margins.left)}px`;
-          return <div className={index === currentPage ? 'paper-wrapper current' : 'paper-wrapper'} key={page.id} style={{ width: geometry.widthPx * pageScale, height: geometry.heightPx * pageScale }} onClick={() => onCurrentPage(index)}>
+          return <div className={index === currentPage ? 'paper-wrapper current' : 'paper-wrapper'} key={page.id} style={{ width: geometry.widthPx * pageScale, height: geometry.heightPx * pageScale, '--paper-width': `${geometry.widthPx}px`, '--paper-height': `${geometry.heightPx}px` } as React.CSSProperties} onClick={() => onCurrentPage(index)}>
           <article className="paper exportable-page" data-page-index={index} aria-label={`${page.preset} 문서 ${index + 1}쪽`} style={{ width: geometry.widthPx, minHeight: geometry.heightPx, transform: `scale(${pageScale})`, background: page.background }} onDrop={(event) => { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); onFiles(event.dataTransfer.files, index, { x: (event.clientX - rect.left) / pageScale, y: (event.clientY - rect.top) / pageScale }); }}>
             {index === currentPage ? <span className="active-frame-size" style={{ '--inverse-page-scale': String(1 / pageScale) } as React.CSSProperties}>
             {showGuides ? <>

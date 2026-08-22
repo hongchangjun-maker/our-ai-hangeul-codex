@@ -20,6 +20,8 @@ export function ObjectInspector({ object, pageWidth, pageHeight, onChange, onAct
   const typeLabel = object.type === 'image' ? '사진' : object.type === 'attachment' ? '첨부 파일' : object.type === 'text-box' ? '글상자' : '도형';
   return <section className="object-inspector" aria-label={`${typeLabel} 속성`}>
     <div className="inspector-heading"><span>선택한 {typeLabel}</span><small>마우스로 끌어 바로 조절</small></div>
+    {object.type === 'text-box' && <label className="inspector-text"><span>글상자 내용</span><textarea value={object.text || ''} maxLength={5000} onChange={(event) => onChange({ text: event.target.value })} /></label>}
+    {(object.type === 'text-box' || object.type === 'shape') && <label className="inspector-color"><span>배경색</span><input type="color" value={object.style?.background || '#ffffff'} onChange={(event) => onChange({ style: { ...object.style, background: event.target.value } })} /></label>}
     <div className="inspector-grid">
       <NumberField label="X" value={object.x} min={0} max={pageWidth - object.width} onChange={(x) => onChange({ x })} />
       <NumberField label="Y" value={object.y} min={0} max={pageHeight - object.height} onChange={(y) => onChange({ y })} />

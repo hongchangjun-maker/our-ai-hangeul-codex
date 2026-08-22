@@ -44,8 +44,8 @@ function ObjectContent({ object }: { object: DocumentObject }) {
     };
     return <button className="attachment-card" type="button" onDoubleClick={() => void download()}><span><FileText size={24} /></span><span><strong>{object.name}</strong><small>{formatBytes(object.size)} · 두 번 눌러 저장</small></span><Download size={16} /></button>;
   }
-  if (object.type === 'text-box') return <div className="free-text-box">{object.text || '텍스트 상자'}</div>;
-  return <div className="free-shape" />;
+  if (object.type === 'text-box') return <div className="free-text-box" style={{ background: object.style?.background }}>{object.text || '텍스트 상자'}</div>;
+  return <div className="free-shape" style={{ background: object.style?.background, borderColor: object.style?.borderColor, borderWidth: object.style?.borderWidth, borderRadius: object.style?.borderRadius }} />;
 }
 
 export function ObjectLayer({

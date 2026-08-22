@@ -215,6 +215,16 @@ export function EditorApp() {
     documentActionAt.current = Date.now();
   };
 
+  const insertObject = (type: 'text-box' | 'shape') => {
+    const page = store.document.pages[currentPage];
+    const geometry = pageGeometry(page);
+    const width = type === 'text-box' ? 300 : 160;
+    const height = type === 'text-box' ? 96 : 120;
+    const object: DocumentObject = { id: crypto.randomUUID(), type, x: (geometry.widthPx - width) / 2, y: 150, width, height, rotation: 0, zIndex: Math.max(0, ...page.objects.map((item) => item.zIndex)) + 1, locked: false, opacity: 1, text: type === 'text-box' ? '텍스트를 입력하세요' : undefined, style: { background: type === 'text-box' ? '#ffffff' : '#dcefe9', borderColor: '#8eb8ad', borderWidth: 1, borderRadius: type === 'text-box' ? 4 : 14, shadow: false } };
+    store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => index === currentPage ? { ...item, objects: [...item.objects, object] } : item) }));
+    setSelectedObjectId(object.id); documentActionAt.current = Date.now();
+  };
+
   const addPage = (content?: RichTextDocument) => {
     const source = store.document.pages[currentPage] ?? store.document.pages[0];
     const page = createPage(content, source.preset, source.orientation, source.margins);
@@ -359,7 +369,10 @@ export function EditorApp() {
       onToggleAi={() => setAiOpen((value) => !value)}
       onTogglePageNav={() => setPageNavOpen((value) => !value)}
       onZoom={setZoom}
+      onInsertObject={insertObject}
       onObjectAction={objectAction}
+      documentText={documentToText(store.document)}
+      selectionText={selectionText}
       pagePreset={currentPageState.preset}
       pageOrientation={currentPageState.orientation}
       onPagePreset={onPagePreset}

@@ -14,6 +14,8 @@ import {
   FilePlus2,
   FileUp,
   ImagePlus,
+  List,
+  ListOrdered,
   Layers2,
   Lock,
   LockOpen,
@@ -26,9 +28,11 @@ import {
   Redo2,
   Save,
   Settings,
+  Square,
   Sparkles,
   Table2,
   Trash2,
+  Type,
   Undo2,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -77,7 +81,10 @@ export function EditorChrome({
   onFontLibrary,
   onDocumentStyle,
   onZoom,
+  onInsertObject,
   onObjectAction,
+  documentText,
+  selectionText,
 }: {
   editor: Editor | null;
   documentName: string;
@@ -116,13 +123,19 @@ export function EditorChrome({
   onFontLibrary: () => void;
   onDocumentStyle: (styleId: DocumentStyleId) => void;
   onZoom: (value: number) => void;
+  onInsertObject: (type: 'text-box' | 'shape') => void;
   onObjectAction: (action: 'front' | 'back' | 'lock' | 'duplicate' | 'delete' | 'center-x' | 'center-y') => void;
+  documentText: string;
+  selectionText: string;
 }) {
   const [menu, setMenu] = useState('글자');
   const menus = ['파일', '글자', '삽입', '표', '페이지', 'AI', '보기'];
   const selectedFont = editor?.getAttributes('textStyle').fontFamily || DEFAULT_FONT_FAMILY;
   const applyFont = (family: string) => editor?.chain().focus().setFontFamily(family).run();
   const quickFonts = (favoriteFonts.length ? favoriteFonts : DEFAULT_FAVORITE_FONT_FAMILIES).filter(isBundledFont).slice(0, 6);
+  const blockStyle = editor?.isActive('heading', { level: 1 }) ? 'h1' : editor?.isActive('heading', { level: 2 }) ? 'h2' : editor?.isActive('heading', { level: 3 }) ? 'h3' : editor?.isActive('blockquote') ? 'quote' : 'p';
+  const characters = documentText.length;
+  const words = documentText.trim() ? documentText.trim().split(/\s+/u).length : 0;
 
   const textTools = <>
     <div className="quick-fonts" aria-label="자주 쓰는 글꼴">
@@ -161,6 +174,17 @@ export function EditorChrome({
     <select className="line-height-tool" aria-label="줄 간격" defaultValue="1.7" onChange={(event) => editor?.chain().focus().setLineHeight(event.target.value).run()}>
       <option value="1.2">줄 120%</option><option value="1.5">줄 150%</option><option value="1.7">줄 170%</option><option value="2">줄 200%</option>
     </select>
+    <span className="divider" />
+    <select className="style-tool" aria-label="문단 스타일" value={blockStyle} onChange={(event) => {
+      const value = event.target.value;
+      if (value === 'quote') editor?.chain().focus().setBlockquote().run();
+      else if (value === 'p') editor?.chain().focus().setParagraph().run();
+      else editor?.chain().focus().setHeading({ level: Number(value.slice(1)) as 1 | 2 | 3 }).run();
+    }}>
+      <option value="p">본문</option><option value="h1">제목 1</option><option value="h2">제목 2</option><option value="h3">제목 3</option><option value="quote">인용문</option>
+    </select>
+    <ToolButton label="글머리표 목록" active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={18} /></ToolButton>
+    <ToolButton label="번호 목록" active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={18} /></ToolButton>
   </>;
 
   const tableTools = <>
@@ -201,6 +225,8 @@ export function EditorChrome({
       {menu === '글자' && textTools}
       {menu === '삽입' && <>
         <label className="label-tool file-label"><ImagePlus size={17} /> 사진/파일<input type="file" multiple onChange={(event) => event.target.files && onFiles(event.target.files)} /></label>
+        <button className="label-tool" type="button" onClick={() => onInsertObject('text-box')}><Type size={17} /> 글상자</button>
+        <button className="label-tool" type="button" onClick={() => onInsertObject('shape')}><Square size={17} /> 도형</button>
         <button className="label-tool" type="button" onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><Table2 size={17} /> 표</button>
         <button className="label-tool" type="button" onClick={onAddPage}><FilePlus2 size={17} /> 새 페이지</button>
       </>}
@@ -217,7 +243,7 @@ export function EditorChrome({
             {(Object.keys(PAGE_PRESET_LABELS) as PagePreset[]).map((preset) => <option key={preset} value={preset}>{PAGE_PRESET_LABELS[preset]}</option>)}
           </select>
         </label>
-        <button className="label-tool" type="button" onClick={onPageOrientation}><ArrowLeftRight size={17} /> {pageOrientation === 'portrait' ? '세로' : '가로'}로 전환</button>
+        <button className="label-tool" type="button" onClick={onPageOrientation}><ArrowLeftRight size={17} /> {pageOrientation === 'portrait' ? '가로' : '세로'}로 전환</button>
         <button className="label-tool" type="button" onClick={onResetMargins}><Layers2 size={17} /> 기본 여백으로 되돌리기</button>
         <button className="label-tool" type="button" onClick={onTogglePageGuides}><Eye size={17} /> 가이드 {showPageGuides ? '숨기기' : '보기'}</button>
       </>}
@@ -244,6 +270,7 @@ export function EditorChrome({
     </section>
     <footer className="statusbar">
       <span>{currentPage + 1}/{pageCount}쪽</span><span>{saveLabel}</span>
+      <span className="document-stats">{selectionText ? `선택 ${selectionText.length.toLocaleString('ko-KR')}자` : `공백 포함 ${characters.toLocaleString('ko-KR')}자 · ${words.toLocaleString('ko-KR')}단어`}</span>
       <span className="zoom"><button type="button" onClick={() => onZoom(Math.max(50, zoom - 25))}>−</button><b>{zoom}%</b><button type="button" onClick={() => onZoom(Math.min(150, zoom + 25))}>+</button></span>
     </footer>
   </>;

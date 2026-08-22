@@ -6,6 +6,14 @@ import { exportDocx, exportHtml, exportHwpx, exportMarkdown, exportOdt, exportPd
 
 export type ExportType = 'pdf' | 'hwpx' | 'docx' | 'odt' | 'rtf' | 'markdown' | 'txt' | 'html' | 'source' | 'print';
 
+async function withCleanOutput<T>(task: () => Promise<T>) {
+  const root = globalThis.document.documentElement;
+  root.classList.add('document-output-mode');
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  try { return await task(); }
+  finally { root.classList.remove('document-output-mode'); }
+}
+
 export function useDocumentExport(document: EditorDocument) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -31,8 +39,11 @@ export function useDocumentExport(document: EditorDocument) {
         const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page'))
           .map((page) => ({ page, pageIndex: Number(page.dataset.pageIndex ?? 0) }));
         const transforms = pages.map((entry) => entry.page.style.transform);
-        pages.forEach(({ page }) => { page.style.transform = 'none'; });
-        try { await exportPdf(document, pages, setMessage); } finally { pages.forEach((entry, index) => { entry.page.style.transform = transforms[index]; }); }
+        await withCleanOutput(async () => {
+          pages.forEach(({ page }) => { page.style.transform = 'none'; });
+          try { await exportPdf(document, pages, setMessage); }
+          finally { pages.forEach((entry, index) => { entry.page.style.transform = transforms[index]; }); }
+        });
       }
       if (!['pdf', 'docx', 'hwpx', 'odt'].includes(type)) setMessage('파일 저장을 시작했습니다.');
     } catch (reason) { setMessage(reason instanceof Error ? reason.message : '내보내기에 실패했습니다.'); }
