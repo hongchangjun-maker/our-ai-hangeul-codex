@@ -1,4 +1,4 @@
-export const DOCUMENT_FORMAT_VERSION = '1.1.0';
+export const DOCUMENT_FORMAT_VERSION = '1.2.0';
 
 export const PAGE_PRESETS = {
   A4: { widthMm: 210, heightMm: 297 },
@@ -142,6 +142,12 @@ export interface EditorDocument {
     snapEnabled: boolean;
     guidesEnabled: boolean;
     autosaveDelayMs: number;
+    pageNumber: {
+      enabled: boolean;
+      start: number;
+      position: 'header-right' | 'footer-center' | 'footer-right';
+      format: 'number' | 'dash' | 'page-of-total';
+    };
   };
   pages: DocumentPage[];
   fonts: string[];
@@ -201,7 +207,7 @@ export function createDocument(templateId = 'blank', defaults?: { defaultFont?: 
     name: names[templateId] ?? '새 문서',
     createdAt: now,
     updatedAt: now,
-    settings: { defaultFont: defaults?.defaultFont || style.defaultFont, defaultFontSize: style.defaultFontSize, headingFont: style.headingFont, headingColor: style.headingColor, lineHeight: style.lineHeight, documentStyleId: style.id, snapEnabled: true, guidesEnabled: true, autosaveDelayMs: defaults?.autosaveDelayMs ?? 900 },
+    settings: { defaultFont: defaults?.defaultFont || style.defaultFont, defaultFontSize: style.defaultFontSize, headingFont: style.headingFont, headingColor: style.headingColor, lineHeight: style.lineHeight, documentStyleId: style.id, snapEnabled: true, guidesEnabled: true, autosaveDelayMs: defaults?.autosaveDelayMs ?? 900, pageNumber: { enabled: true, start: 1, position: 'footer-center', format: 'number' } },
     pages: [createPage(content, template.preset, template.orientation, template.margins)],
     fonts: ['Pretendard', 'SUIT', 'Gowun Dodum', 'Gowun Batang', 'Black Han Sans', 'Jua', 'Nanum Pen Script', 'Inter', 'Roboto', 'Open Sans', 'Montserrat', 'Lora', 'Source Serif 4', 'Playfair Display', 'JetBrains Mono'],
     comments: [],
@@ -232,7 +238,8 @@ function validateDocumentShape(value: EditorDocument) {
   if (!stringValue(value.id) || !stringValue(value.name, 500) || !stringValue(value.createdAt) || !stringValue(value.updatedAt)) throw new Error('문서 식별 정보가 올바르지 않습니다.');
   const settings = record(value.settings);
   const styleIds: DocumentStyleId[] = ['modern', 'report', 'classic', 'presentation', 'code'];
-  if (!settings || !stringValue(settings.defaultFont, 128) || !stringValue(settings.headingFont, 128) || !numberValue(settings.defaultFontSize, 6, 96) || !numberValue(settings.lineHeight, 0.8, 4) || !styleIds.includes(settings.documentStyleId as DocumentStyleId) || typeof settings.snapEnabled !== 'boolean' || typeof settings.guidesEnabled !== 'boolean' || !numberValue(settings.autosaveDelayMs, 500, 10_000)) throw new Error('문서 기본 설정이 올바르지 않습니다.');
+  const pageNumber = record(settings?.pageNumber);
+  if (!settings || !stringValue(settings.defaultFont, 128) || !stringValue(settings.headingFont, 128) || !numberValue(settings.defaultFontSize, 6, 96) || !numberValue(settings.lineHeight, 0.8, 4) || !styleIds.includes(settings.documentStyleId as DocumentStyleId) || typeof settings.snapEnabled !== 'boolean' || typeof settings.guidesEnabled !== 'boolean' || !numberValue(settings.autosaveDelayMs, 500, 10_000) || !pageNumber || typeof pageNumber.enabled !== 'boolean' || !numberValue(pageNumber.start, 0, 100_000) || !['header-right', 'footer-center', 'footer-right'].includes(String(pageNumber.position)) || !['number', 'dash', 'page-of-total'].includes(String(pageNumber.format))) throw new Error('문서 기본 설정이 올바르지 않습니다.');
   if (!Array.isArray(value.pages) || value.pages.length === 0 || value.pages.length > 500) throw new Error('문서 페이지 수가 올바르지 않습니다.');
   for (const page of value.pages) {
     const raw = record(page);
@@ -269,7 +276,15 @@ export function migrateDocument(input: unknown): EditorDocument {
         snapEnabled: legacySettings.snapEnabled ?? true,
         guidesEnabled: legacySettings.guidesEnabled ?? true,
         autosaveDelayMs: legacySettings.autosaveDelayMs ?? 900,
+        pageNumber: { enabled: true, start: 1, position: 'footer-center', format: 'number' },
       },
+    } as EditorDocument);
+  }
+  if (candidate.formatVersion === '1.1.0') {
+    return validateDocumentShape({
+      ...candidate,
+      formatVersion: DOCUMENT_FORMAT_VERSION,
+      settings: { ...candidate.settings!, pageNumber: { enabled: true, start: 1, position: 'footer-center', format: 'number' } },
     } as EditorDocument);
   }
   if (candidate.formatVersion !== DOCUMENT_FORMAT_VERSION) throw new Error(`지원하지 않는 문서 버전입니다: ${candidate.formatVersion ?? '알 수 없음'}`);

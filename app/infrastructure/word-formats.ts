@@ -1,15 +1,16 @@
-import { createDocument, type EditorDocument, type RichTextDocument } from '../domain/document';
+import { createDocument, createPage, type DocumentObject, type EditorDocument, type RichTextDocument } from '../domain/document';
+import { storeAsset } from './local-storage';
 
 const MAX_OFFICE_BYTES = 25 * 1024 * 1024;
 const MAX_XML_TEXT_BYTES = 8 * 1024 * 1024;
 
-type RichNode = { type: 'paragraph' | 'heading' | 'bulletList'; attrs?: { level: number }; content?: RichNode[] | Array<{ type: 'text'; text: string }> };
+type RichNode = { type: string; text?: string; attrs?: Record<string, unknown>; content?: RichNode[] };
 
 function fileStem(name: string) {
   return name.replace(/\.[^.]+$/, '').trim() || '가져온 문서';
 }
 
-function textNode(text: string) {
+function textNode(text: string): RichNode {
   return { type: 'text' as const, text: text.slice(0, 100_000) };
 }
 
@@ -35,13 +36,15 @@ function xmlDocument(xml: string) {
 
 function htmlTextFlow(html: string): RichTextDocument {
   const parsed = new DOMParser().parseFromString(html, 'text/html');
-  const lines: Array<{ text: string; level?: number; bullet?: boolean }> = [];
-  for (const element of Array.from(parsed.body.querySelectorAll('h1,h2,h3,p,li,th,td'))) {
-    const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const paragraphNode = (element: Element, type = 'paragraph') => { const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim(); return { type, content: text ? [textNode(text)] : undefined }; };
+  const content: RichNode[] = Array.from(parsed.body.children).flatMap<RichNode>((element) => {
     const tag = element.tagName.toLowerCase();
-    lines.push({ text, level: /^h[1-3]$/.test(tag) ? Number(tag[1]) : undefined, bullet: tag === 'li' });
-  }
-  return contentFromLines(lines.length ? lines : [{ text: (parsed.body.textContent ?? '').trim() }]);
+    if (/^h[1-3]$/.test(tag)) return [{ ...paragraphNode(element, 'heading'), attrs: { level: Number(tag[1]) } }];
+    if (tag === 'table') return [{ type: 'table', content: Array.from(element.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr')).map((row, rowIndex) => ({ type: 'tableRow', content: Array.from(row.children).filter((cell) => ['TH', 'TD'].includes(cell.tagName)).map((cell) => ({ type: cell.tagName === 'TH' || rowIndex === 0 ? 'tableHeader' : 'tableCell', attrs: { colspan: Number(cell.getAttribute('colspan') || 1), rowspan: Number(cell.getAttribute('rowspan') || 1) }, content: [paragraphNode(cell)] })) })) }];
+    if (tag === 'ul' || tag === 'ol') return [{ type: tag === 'ul' ? 'bulletList' : 'orderedList', content: Array.from(element.children).map((item) => ({ type: 'listItem', content: [paragraphNode(item)] })) }];
+    return tag === 'p' ? [paragraphNode(element)] : [];
+  });
+  return { type: 'doc', content: content.length ? content : [paragraphNode(parsed.body)] } as RichTextDocument;
 }
 
 function markdownTextFlow(markdown: string): RichTextDocument {
@@ -92,21 +95,56 @@ async function docxTextFlow(file: File) {
   const arrayBuffer = await file.arrayBuffer();
   const nodeRuntime = (globalThis as typeof globalThis & { process?: { versions?: { node?: string } } }).process?.versions?.node;
   const source = nodeRuntime ? { buffer: Buffer.from(arrayBuffer) } : { arrayBuffer };
-  const converted = await mammoth.convertToHtml(source, { ignoreEmptyParagraphs: false });
-  return htmlTextFlow(converted.value);
+  const converted = await mammoth.convertToHtml(source, { ignoreEmptyParagraphs: false, convertImage: mammoth.images.imgElement(async (image) => ({ src: `data:${image.contentType};base64,${await image.read('base64')}` })) });
+  const parsed = new DOMParser().parseFromString(converted.value, 'text/html'); const objects: DocumentObject[] = [];
+  for (const [index, image] of Array.from(parsed.querySelectorAll('img')).entries()) {
+    const match = /^data:([^;,]+);base64,(.+)$/i.exec(image.src); if (!match) continue;
+    const bytes = Uint8Array.from(atob(match[2]), (character) => character.charCodeAt(0)); const stored = await storeAsset(new Blob([bytes], { type: match[1] }), image.alt || `DOCX 이미지 ${index + 1}`, match[1]);
+    objects.push({ id: crypto.randomUUID(), type: 'image', x: 90, y: 130 + index * 28, width: 260, height: 180, rotation: 0, zIndex: 10 + index, locked: false, opacity: 1, assetId: stored.id, name: image.alt || `DOCX 이미지 ${index + 1}`, mediaType: match[1], size: bytes.byteLength });
+  }
+  return { textFlow: htmlTextFlow(converted.value), objects };
 }
 
 async function hwpxTextFlow(file: File) {
   const { zip, entries } = await zipTextEntries(file, (name) => /^Contents\/section\d+\.xml$/i.test(name));
   const mimetype = await zip.file('mimetype')?.async('text');
   if (mimetype && !mimetype.startsWith('application/hwp')) throw new Error('HWPX 패키지 식별 정보가 올바르지 않습니다.');
-  const lines = entries.sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true })).flatMap(({ text }) => {
+  const content: RichNode[] = entries.sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true })).flatMap<RichNode>(({ text }) => {
     const parsed = xmlDocument(text);
-    return Array.from(parsed.getElementsByTagName('*'))
-      .filter((element) => element.localName === 'p')
-      .map((element) => ({ text: (element.textContent ?? '').replace(/\s+/g, ' ').trim() }));
+    const direct = Array.from(parsed.documentElement.children);
+    return direct.flatMap<RichNode>((element) => {
+      if (element.localName === 'tbl') {
+        const rows = Array.from(element.getElementsByTagName('*')).filter((item) => item.localName === 'tr');
+        return [{ type: 'table', content: rows.map((row, rowIndex) => ({ type: 'tableRow', content: Array.from(row.children).filter((cell) => cell.localName === 'tc').map((cell) => ({ type: rowIndex === 0 || cell.getAttribute('header') === '1' ? 'tableHeader' : 'tableCell', attrs: { colspan: Number(Array.from(cell.getElementsByTagName('*')).find((item) => item.localName === 'cellSpan')?.getAttribute('colSpan') || 1) }, content: [{ type: 'paragraph', content: cell.textContent?.trim() ? [textNode(cell.textContent.trim())] : undefined }] })) })) }];
+      }
+      if (element.localName !== 'p') return [];
+      const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim();
+      return text ? [{ type: 'paragraph', content: [textNode(text)] }] : [];
+    });
   });
-  return contentFromLines(lines);
+  return { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] } as RichTextDocument;
+}
+
+async function restoreObjectMetadata(file: File, extension: string, document: EditorDocument) {
+  if (!['docx', 'hwpx'].includes(extension)) return document;
+  const { default: JSZip } = await import('jszip'); const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const metadataPath = extension === 'docx' ? 'customXml/our-ai-document.json' : 'Contents/our-ai-document.json';
+  const metadataText = await zip.file(metadataPath)?.async('text'); if (!metadataText) return document;
+  const metadata = JSON.parse(metadataText) as { format?: string; settings?: EditorDocument['settings']['pageNumber']; pages?: Array<{ header?: string; footer?: string; objects?: DocumentObject[] }> };
+  if (metadata.format !== 'our-ai-hangeul-objects-v1' || !Array.isArray(metadata.pages)) return document;
+  const pages = [...document.pages]; while (pages.length < metadata.pages.length) pages.push(createPage());
+  for (let index = 0; index < metadata.pages.length; index += 1) {
+    const source = metadata.pages[index]; const objects: DocumentObject[] = [];
+    for (const object of source.objects ?? []) {
+      if (object.assetId) {
+        const assetPath = extension === 'docx' ? `customXml/assets/${object.assetId}` : `BinData/${object.assetId}`; const blob = await zip.file(assetPath)?.async('blob');
+        if (blob) { const stored = await storeAsset(blob, object.name || '가져온 이미지', object.mediaType || blob.type); objects.push({ ...object, assetId: stored.id }); continue; }
+      }
+      objects.push(object);
+    }
+    pages[index] = { ...pages[index], header: source.header, footer: source.footer, objects };
+  }
+  return { ...document, settings: metadata.settings ? { ...document.settings, pageNumber: metadata.settings } : document.settings, pages };
 }
 
 async function odtTextFlow(file: File) {
@@ -122,14 +160,17 @@ export const WORD_IMPORT_EXTENSIONS = ['hwpx', 'docx', 'odt', 'rtf', 'html', 'ht
 
 export async function importWordDocument(file: File, extension: string) {
   if (file.size > MAX_OFFICE_BYTES) throw new Error('문서 파일은 25MB 이하만 가져올 수 있습니다.');
-  const textFlow = extension === 'docx' ? await docxTextFlow(file)
-    : extension === 'hwpx' ? await hwpxTextFlow(file)
+  if (extension === 'docx') {
+    const imported = await docxTextFlow(file); const base = importedDocument(file.name, imported.textFlow);
+    return restoreObjectMetadata(file, extension, { ...base, pages: [{ ...base.pages[0], objects: imported.objects }] });
+  }
+  const textFlow = extension === 'hwpx' ? await hwpxTextFlow(file)
       : extension === 'odt' ? await odtTextFlow(file)
         : extension === 'rtf' ? rtfTextFlow(await file.text())
           : ['html', 'htm'].includes(extension) ? htmlTextFlow(await file.text())
             : ['md', 'markdown'].includes(extension) ? markdownTextFlow(await file.text())
               : contentFromLines((await file.text()).replace(/\r\n/g, '\n').split('\n').map((text) => ({ text })));
-  return importedDocument(file.name, textFlow);
+  return restoreObjectMetadata(file, extension, importedDocument(file.name, textFlow));
 }
 
 export function documentTextFlowFromText(text: string) {

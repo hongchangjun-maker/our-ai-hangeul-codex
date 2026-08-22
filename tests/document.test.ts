@@ -5,7 +5,8 @@ import { fitPageObjects, pageGeometry } from '../app/domain/geometry';
 describe('document domain', () => {
   it('creates a versioned A4 document from each first-run template', () => {
     const report = createDocument('report');
-    expect(report.formatVersion).toBe('1.1.0');
+    expect(report.formatVersion).toBe('1.2.0');
+    expect(report.settings.pageNumber).toEqual({ enabled: true, start: 1, position: 'footer-center', format: 'number' });
     expect(report.settings.documentStyleId).toBe('modern');
     expect(report.pages).toHaveLength(1);
     expect(report.pages[0].preset).toBe('A4');
@@ -31,9 +32,16 @@ describe('document domain', () => {
     const document = createDocument();
     const legacySettings = Object.fromEntries(Object.entries(document.settings).filter(([key]) => !['headingFont', 'headingColor', 'lineHeight', 'documentStyleId'].includes(key)));
     const migrated = migrateDocument({ ...document, formatVersion: '1.0.0', settings: legacySettings });
-    expect(migrated.formatVersion).toBe('1.1.0');
+    expect(migrated.formatVersion).toBe('1.2.0');
     expect(migrated.settings.documentStyleId).toBe('modern');
     expect(migrated.settings.headingFont).toBe('Pretendard');
+  });
+
+  it('migrates 1.1 documents with page numbering defaults', () => {
+    const document = createDocument();
+    const settings = Object.fromEntries(Object.entries(document.settings).filter(([key]) => key !== 'pageNumber'));
+    const migrated = migrateDocument({ ...document, formatVersion: '1.1.0', settings });
+    expect(migrated.settings.pageNumber.start).toBe(1);
   });
 
   it('applies administrator defaults only to new documents', () => {

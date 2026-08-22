@@ -2,7 +2,7 @@ import { Document, Packer, Paragraph } from 'docx';
 import JSZip from 'jszip';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { createDocument, createPage } from '../app/domain/document';
-import { exportHwpx, exportOdt } from '../app/infrastructure/export-service';
+import { buildDocxBlob, exportHwpx, exportOdt } from '../app/infrastructure/export-service';
 import { buildHwpxBlob } from '../app/infrastructure/hwpx-export';
 import { importFile } from '../app/infrastructure/file-import';
 
@@ -65,6 +65,25 @@ describe('word document format boundary', () => {
     expect(await odtZip.file('mimetype')?.async('text')).toBe('application/vnd.oasis.opendocument.text');
     expect(importedText(await importFile(new File([downloadBlobs[0]], 'roundtrip.hwpx')))).toContain('보고서 제목');
     expect(importedText(await importFile(new File([downloadBlobs[1]], 'roundtrip.odt')))).toContain('보고서 제목');
+  });
+
+  it('round-trips tables, headers, footers and editable text-box metadata through DOCX and HWPX', async () => {
+    const document = createDocument();
+    document.pages[0].header = '회사 머리말'; document.pages[0].footer = '보안 문서';
+    document.settings.pageNumber = { enabled: true, start: 7, position: 'footer-right', format: 'page-of-total' };
+    document.pages[0].textFlow = { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '항목' }] }] }, { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '값' }] }] }] }, { type: 'tableRow', content: [{ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '합계' }] }] }, { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '100' }] }] }] }] }] };
+    document.pages[0].objects = [{ id: 'box-1', type: 'text-box', x: 50, y: 60, width: 220, height: 80, rotation: 0, zIndex: 4, locked: false, opacity: 1, text: '왕복 글상자' }];
+    const docxBlob = await buildDocxBlob(document); const docxZip = await JSZip.loadAsync(docxBlob);
+    expect(await docxZip.file('word/header1.xml')?.async('text')).toContain('회사 머리말');
+    expect(await docxZip.file('word/document.xml')?.async('text')).toContain('<w:tbl>');
+    const docxImported = await importFile(new File([docxBlob], 'roundtrip.docx'));
+    expect(importedText(docxImported)).toContain('합계');
+    if (docxImported.kind === 'document') expect(docxImported.document.pages[0].objects[0].text).toBe('왕복 글상자');
+    const hwpxBlob = await buildHwpxBlob(document); const hwpxZip = await JSZip.loadAsync(hwpxBlob);
+    expect(await hwpxZip.file('Contents/section0.xml')?.async('text')).toContain('<hp:tbl');
+    const hwpxImported = await importFile(new File([hwpxBlob], 'roundtrip.hwpx'));
+    expect(importedText(hwpxImported)).toContain('100');
+    if (hwpxImported.kind === 'document') { expect(hwpxImported.document.pages[0].header).toBe('회사 머리말'); expect(hwpxImported.document.pages[0].objects[0].text).toBe('왕복 글상자'); }
   });
 
   it('writes a Hancom-shaped multi-section HWPX package with page layout definitions', async () => {

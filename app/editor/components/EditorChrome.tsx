@@ -8,10 +8,12 @@ import {
   AlignRight,
   ArrowLeftRight,
   Bot,
+  Cloud,
   Columns3,
   Eye,
   Download,
   FilePlus2,
+  FileText,
   FileUp,
   ImagePlus,
   List,
@@ -27,6 +29,7 @@ import {
   Printer,
   Redo2,
   Save,
+  Search,
   Settings,
   Square,
   Sparkles,
@@ -67,6 +70,9 @@ export function EditorChrome({
   onExport,
   onPrint,
   onAdmin,
+  onPageSetup,
+  onReview,
+  onCloudSync,
   onToggleAi,
   onTogglePageNav,
   onPagePreset,
@@ -107,6 +113,9 @@ export function EditorChrome({
   onExport: () => void;
   onPrint: () => void;
   onAdmin: () => void;
+  onPageSetup: () => void;
+  onReview: () => void;
+  onCloudSync: () => void;
   onToggleAi: () => void;
   onTogglePageNav: () => void;
   pagePreset: PagePreset;
@@ -129,7 +138,7 @@ export function EditorChrome({
   selectionText: string;
 }) {
   const [menu, setMenu] = useState('글자');
-  const menus = ['파일', '글자', '삽입', '표', '페이지', 'AI', '보기'];
+  const menus = ['파일', '글자', '삽입', '표', '페이지', '검토', 'AI', '보기'];
   const selectedFont = editor?.getAttributes('textStyle').fontFamily || DEFAULT_FONT_FAMILY;
   const applyFont = (family: string) => editor?.chain().focus().setFontFamily(family).run();
   const quickFonts = (favoriteFonts.length ? favoriteFonts : DEFAULT_FAVORITE_FONT_FAMILIES).filter(isBundledFont).slice(0, 6);
@@ -207,6 +216,7 @@ export function EditorChrome({
         <ToolButton label="다시 실행" onClick={onRedo}><Redo2 size={18} /></ToolButton>
         <button className={aiOpen ? 'ai-button active' : 'ai-button'} type="button" onClick={onToggleAi}><Sparkles size={17} /> AI</button>
         <ToolButton label="내보내기" onClick={onExport}><Download size={18} /></ToolButton>
+        <ToolButton label="클라우드 동기화" onClick={onCloudSync}><Cloud size={18} /></ToolButton>
         <ToolButton label="인쇄" onClick={onPrint}><Printer size={18} /></ToolButton>
         <ToolButton label="관리자" onClick={onAdmin}><Settings size={18} /></ToolButton>
       </div>
@@ -223,6 +233,7 @@ export function EditorChrome({
         <button className="label-tool" type="button" onClick={onPrint}><Printer size={17} /> 인쇄</button>
       </>}
       {menu === '글자' && textTools}
+      {menu === '검토' && <button className="label-tool" type="button" onClick={onReview}><Search size={17} /> 찾기·바꾸기 / 맞춤법</button>}
       {menu === '삽입' && <>
         <label className="label-tool file-label"><ImagePlus size={17} /> 사진/파일<input type="file" multiple onChange={(event) => event.target.files && onFiles(event.target.files)} /></label>
         <button className="label-tool" type="button" onClick={() => onInsertObject('text-box')}><Type size={17} /> 글상자</button>
@@ -232,6 +243,7 @@ export function EditorChrome({
       </>}
       {menu === '표' && tableTools}
       {menu === '페이지' && <>
+        <button className="label-tool" type="button" onClick={onPageSetup}><FileText size={17} /> 머리말·꼬리말 / 쪽 번호</button>
         <button className="label-tool" type="button" onClick={onAddPage}><FilePlus2 size={17} /> 페이지 추가</button>
         <button className="label-tool" type="button" onClick={onDuplicatePage}><Columns3 size={17} /> 현재 쪽 복제</button>
         <button className="label-tool danger" type="button" onClick={onDeletePage} disabled={pageCount <= 1}><Trash2 size={17} /> 현재 쪽 삭제</button>

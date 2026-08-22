@@ -37,3 +37,23 @@ export const adminAudit = sqliteTable('admin_audit', {
   success: integer('success', { mode: 'boolean' }).notNull(),
   clientHash: text('client_hash').notNull(),
 }, (table) => [index('idx_admin_audit_created').on(table.createdAt)]);
+
+export const cloudDocuments = sqliteTable('cloud_documents', {
+  id: text('id').primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  name: text('name').notNull(),
+  snapshot: text('snapshot').notNull(),
+  revision: integer('revision').notNull().default(1),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  clientHash: text('client_hash').notNull(),
+}, (table) => [index('idx_cloud_documents_token').on(table.tokenHash)]);
+
+export const cloudVersions = sqliteTable('cloud_versions', {
+  id: text('id').primaryKey(),
+  documentId: text('document_id').notNull(),
+  revision: integer('revision').notNull(),
+  snapshot: text('snapshot').notNull(),
+  createdAt: text('created_at').notNull(),
+  clientHash: text('client_hash').notNull(),
+}, (table) => [index('idx_cloud_versions_document_revision').on(table.documentId, table.revision)]);

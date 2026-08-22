@@ -24,6 +24,8 @@ import { AIAssistantPanel } from './components/AIAssistantPanel';
 import { EditorChrome } from './components/EditorChrome';
 import { ExportDialog } from './components/ExportDialog';
 import { FontLibraryDialog } from './components/FontLibraryDialog';
+import { CloudSyncDialog } from './components/CloudSyncDialog';
+import { PageSetupDialog } from './components/PageSetupDialog'; import { ReviewDialog } from './components/ReviewDialog';
 import { PageCanvas } from './components/PageCanvas';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { FontSize, LineHeight } from './extensions/formatting';
@@ -50,7 +52,7 @@ export function EditorApp() {
   const { defaults: appDefaults, refresh: refreshAppDefaults } = useAppDefaults();
   const pageLayoutScopeStorageKey = 'our-ai-hangeul:page-layout-scope';
   const pageGuidesStorageKey = 'our-ai-hangeul:show-page-guides';
-  const [screen, setScreen] = useState<'welcome' | 'editor'>('welcome');
+  const [screen, setScreen] = useState<'welcome' | 'editor'>(() => { try { return new URLSearchParams(location.search).has('share') ? 'editor' : 'welcome'; } catch { return 'welcome'; } });
   const [currentPage, setCurrentPage] = useState(0);
   const currentPageRef = useRef(0);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
@@ -77,6 +79,8 @@ export function EditorApp() {
   const [exportOpen, setExportOpen] = useState(false);
   const { busy: exportBusy, message: exportMessage, clearMessage: clearExportMessage, runExport } = useDocumentExport(store.document);
   const [fontLibraryOpen, setFontLibraryOpen] = useState(false);
+  const [pageSetupOpen, setPageSetupOpen] = useState(false); const [reviewOpen, setReviewOpen] = useState(false);
+  const [cloudOpen, setCloudOpen] = useState(() => { try { return new URLSearchParams(location.search).has('share'); } catch { return false; } });
   const { favoriteFonts, toggleFavoriteFont } = useFontPreferences();
   const [recent, setRecent] = useState<EditorDocument[]>([]);
   const [selectionText, setSelectionText] = useState('');
@@ -120,10 +124,11 @@ export function EditorApp() {
 
   useEffect(() => {
     const page = store.document.pages[currentPage];
-    if (!editor || !page || pageIdRef.current === page.id) return;
-    pageIdRef.current = page.id;
-    editor.commands.setContent(page.textFlow as JSONContent, { emitUpdate: false });
-    setSelectedObjectId(null);
+    if (!editor || !page) return;
+    const pageChanged = pageIdRef.current !== page.id;
+    if (!pageChanged && JSON.stringify(editor.getJSON()) === JSON.stringify(page.textFlow)) return;
+    pageIdRef.current = page.id; editor.commands.setContent(page.textFlow as JSONContent, { emitUpdate: false });
+    if (pageChanged) setSelectedObjectId(null);
   }, [currentPage, editor, store.document.pages]);
 
   useEffect(() => {
@@ -366,6 +371,9 @@ export function EditorApp() {
       onExport={() => { setExportOpen(true); clearExportMessage(); }}
       onPrint={() => globalThis.print()}
       onAdmin={() => setAdminOpen(true)}
+      onPageSetup={() => setPageSetupOpen(true)}
+      onReview={() => setReviewOpen(true)}
+      onCloudSync={() => setCloudOpen(true)}
       onToggleAi={() => setAiOpen((value) => !value)}
       onTogglePageNav={() => setPageNavOpen((value) => !value)}
       onZoom={setZoom}
@@ -411,6 +419,9 @@ export function EditorApp() {
     </section>
     <ExportDialog open={exportOpen} busy={exportBusy} message={exportMessage} fontFamilies={collectDocumentFontFamilies(store.document)} onClose={() => setExportOpen(false)} onExport={(type) => void runExport(type)} />
     <FontLibraryDialog open={fontLibraryOpen} favoriteFonts={favoriteFonts} onClose={() => setFontLibraryOpen(false)} onToggleFavorite={toggleFavoriteFont} onApply={applyFontFromLibrary} />
+    <PageSetupDialog open={pageSetupOpen} document={store.document} currentPage={currentPage} onChange={store.replaceDocument} onClose={() => setPageSetupOpen(false)} />
+    <ReviewDialog open={reviewOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setReviewOpen(false)} />
+    <CloudSyncDialog open={cloudOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setCloudOpen(false)} />
     <AdminDialog open={adminOpen} onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} />
     {toast && <div className={`toast ${toast.type}`} role="status"><span>{toast.message}</span><button type="button" onClick={() => setToast(null)} aria-label="알림 닫기"><X size={15} /></button></div>}
   </main>;

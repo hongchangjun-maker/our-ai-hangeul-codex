@@ -1,5 +1,6 @@
 import type { DocumentPage, EditorDocument } from '../domain/document';
 import { pageGeometry } from '../domain/geometry';
+import { getAsset } from './local-storage';
 
 const HWPX_MIME = 'application/hwp+zip';
 const HWPUNIT_PER_MM = 7200 / 25.4;
@@ -39,10 +40,14 @@ function sectionProperties(page: DocumentPage) {
 }
 
 function sectionXml(page: DocumentPage) {
-  const content = blocks(page);
-  const first = content[0] ?? { text: '', heading: false };
   const paragraph = (block: { text: string; heading: boolean }, id: number, section = false) => `<hp:p id="${id}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">${section ? `<hp:run charPrIDRef="0">${sectionProperties(page)}<hp:t/></hp:run>` : ''}<hp:run charPrIDRef="${block.heading ? 1 : 0}"><hp:t>${xml(block.text)}</hp:t></hp:run></hp:p>`;
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core">${paragraph(first, 0, true)}${content.slice(1).map((block, index) => paragraph(block, index + 1)).join('')}</hs:sec>`;
+  const table = (node: RichNode, id: number) => {
+    const rows = (node.content ?? []).filter((item) => item.type === 'tableRow'); const columns = Math.max(1, ...rows.map((row) => row.content?.length ?? 0));
+    return `<hp:tbl id="${id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="1" rowCnt="${rows.length}" colCnt="${columns}" cellSpacing="0" borderFillIDRef="1"><hp:sz width="${unit(160)}" widthRelTo="ABSOLUTE" height="${unit(Math.max(10, rows.length * 10))}" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="141" right="141" top="141" bottom="141"/>${rows.map((row, rowIndex) => `<hp:tr>${(row.content ?? []).map((cell, colIndex) => `<hp:tc name="" header="${cell.type === 'tableHeader' ? 1 : 0}" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="1"><hp:subList id="${id}-${rowIndex}-${colIndex}" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">${paragraph({ text: nodeText(cell), heading: false }, id * 1000 + rowIndex * 100 + colIndex)}</hp:subList><hp:cellAddr colAddr="${colIndex}" rowAddr="${rowIndex}"/><hp:cellSpan colSpan="${Number(cell.attrs?.colspan ?? 1)}" rowSpan="${Number(cell.attrs?.rowspan ?? 1)}"/><hp:cellSz width="${unit(160 / columns)}" height="${unit(10)}"/><hp:cellMargin left="141" right="141" top="141" bottom="141"/></hp:tc>`).join('')}</hp:tr>`).join('')}</hp:tbl>`;
+  };
+  const root = page.textFlow as RichNode; let id = 1;
+  const body = (root.content ?? []).map((node) => node.type === 'table' ? table(node, id++) : paragraph({ text: nodeText(node).trim(), heading: node.type === 'heading' }, id++)).join('');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core">${paragraph({ text: '', heading: false }, 0, true)}${body}</hs:sec>`;
 }
 
 function headerXml(sectionCount: number) {
@@ -52,13 +57,15 @@ function headerXml(sectionCount: number) {
 export async function buildHwpxBlob(document: EditorDocument) {
   const { default: JSZip } = await import('jszip');
   const zip = new JSZip();
+  const assets: Array<{ id: string; blob: Blob; mediaType: string }> = [];
+  for (const page of document.pages) for (const object of page.objects) if (object.assetId && !assets.some((item) => item.id === object.assetId)) { const asset = await getAsset(object.assetId); if (asset) assets.push({ id: object.assetId, blob: asset.blob, mediaType: asset.mediaType }); }
   const sections = document.pages.map((page, index) => ({ id: `section${index}`, path: `Contents/section${index}.xml`, xml: sectionXml(page) }));
-  const manifestItems = sections.map((section) => `<opf:item id="${section.id}" href="${section.id}.xml" media-type="application/xml"/>`).join('');
+  const manifestItems = sections.map((section) => `<opf:item id="${section.id}" href="${section.id}.xml" media-type="application/xml"/>`).join('') + assets.map((asset, index) => `<opf:item id="asset${index}" href="../BinData/${asset.id}" media-type="${xml(asset.mediaType)}"/>`).join('');
   const spine = sections.map((section) => `<opf:itemref idref="${section.id}"/>`).join('');
   const content = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><opf:package xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" version="3.0" unique-identifier="uuid_id"><opf:metadata><dc:title>${xml(document.name)}</dc:title><dc:language>ko</dc:language><dc:identifier id="uuid_id">${xml(document.id)}</dc:identifier></opf:metadata><opf:manifest><opf:item id="header" href="header.xml" media-type="application/xml"/><opf:item id="settings" href="settings.xml" media-type="application/xml"/>${manifestItems}</opf:manifest><opf:spine>${spine}</opf:spine></opf:package>`;
   const container = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf"><ocf:rootfiles><ocf:rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/></ocf:rootfiles></ocf:container>';
   const entries = ['Contents/content.hpf', 'Contents/header.xml', 'Contents/settings.xml', ...sections.map((section) => section.path), 'version.xml'];
-  const manifest = `<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3"><manifest:file-entry manifest:full-path="/" manifest:media-type="${HWPX_MIME}"/>${entries.map((path) => `<manifest:file-entry manifest:full-path="${path}" manifest:media-type="application/xml"/>`).join('')}</manifest:manifest>`;
+  const manifest = `<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3"><manifest:file-entry manifest:full-path="/" manifest:media-type="${HWPX_MIME}"/>${entries.map((path) => `<manifest:file-entry manifest:full-path="${path}" manifest:media-type="application/xml"/>`).join('')}<manifest:file-entry manifest:full-path="Contents/our-ai-document.json" manifest:media-type="application/json"/>${assets.map((asset) => `<manifest:file-entry manifest:full-path="BinData/${asset.id}" manifest:media-type="${xml(asset.mediaType)}"/>`).join('')}</manifest:manifest>`;
   zip.file('mimetype', HWPX_MIME, { compression: 'STORE' });
   zip.file('META-INF/container.xml', container);
   zip.file('META-INF/manifest.xml', manifest);
@@ -66,7 +73,9 @@ export async function buildHwpxBlob(document: EditorDocument) {
   zip.file('Contents/header.xml', headerXml(sections.length));
   zip.file('Contents/settings.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hs:settings xmlns:hs="http://www.hancom.co.kr/hwpml/2011/settings"><hs:caretPosition listIDRef="0" paraIDRef="0" pos="0"/></hs:settings>');
   sections.forEach((section) => zip.file(section.path, section.xml));
+  zip.file('Contents/our-ai-document.json', JSON.stringify({ format: 'our-ai-hangeul-objects-v1', settings: document.settings.pageNumber, pages: document.pages.map((page) => ({ header: page.header, footer: page.footer, objects: page.objects })) }));
+  assets.forEach((asset) => zip.file(`BinData/${asset.id}`, asset.blob));
   zip.file('Preview/PrvText.txt', document.pages.flatMap((page) => blocks(page).map((block) => block.text)).join('\n'));
-  zip.file('version.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/app" targetApplication="WORDPROC" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.4" application="우리의 AI 한글" appVersion="1.1.0"/>');
+  zip.file('version.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/app" targetApplication="WORDPROC" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.4" application="우리의 AI 한글" appVersion="1.2.0"/>');
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
 }

@@ -3,6 +3,7 @@ import type { ParagraphChild, TextRun as DocxTextRun } from 'docx';
 import { pageGeometry } from '../domain/geometry';
 import { downloadBlob } from './download';
 import { buildHwpxBlob } from './hwpx-export';
+import { getAsset } from './local-storage';
 
 function safeName(name: string) {
   return (name.trim() || '새 문서').replace(/[\\/:*?"<>|]/g, '_');
@@ -139,12 +140,31 @@ function textRunsFromNode(node: RichTextNode, fallbackFont: string, TextRun: typ
   return (node.content ?? []).flatMap((child) => textRunsFromNode(child, fallbackFont, TextRun));
 }
 
-export async function exportDocx(document: EditorDocument) {
-  const { Document, HeadingLevel, Packer, Paragraph, TextRun } = await import('docx');
-  const sections = document.pages.map((page) => {
+function tableFromRichNode(node: RichTextNode, docx: typeof import('docx'), fallbackFont: string) {
+  const rows = (node.content ?? []).filter((row) => row.type === 'tableRow').map((row) => new docx.TableRow({ children: (row.content ?? []).map((cell) => new docx.TableCell({
+    columnSpan: Number(cell.attrs?.colspan ?? 1),
+    shading: cell.type === 'tableHeader' ? { fill: 'E9F4F0' } : undefined,
+    children: (cell.content ?? []).map((paragraph) => new docx.Paragraph({ children: textRunsFromNode(paragraph, fallbackFont, docx.TextRun) })) || [new docx.Paragraph('')],
+  })) }));
+  return new docx.Table({ rows, width: { size: 100, type: docx.WidthType.PERCENTAGE } });
+}
+
+function pageFieldRuns(document: EditorDocument, docx: typeof import('docx')) {
+  const format = document.settings.pageNumber.format;
+  const current = new docx.TextRun({ children: [docx.PageNumber.CURRENT] });
+  if (format === 'dash') return [new docx.TextRun('- '), current, new docx.TextRun(' -')];
+  if (format === 'page-of-total') return [current, new docx.TextRun(' / 전체 '), new docx.TextRun({ children: [docx.PageNumber.TOTAL_PAGES] })];
+  return [current];
+}
+
+export async function buildDocxBlob(document: EditorDocument) {
+  const docx = await import('docx');
+  const { Document, HeadingLevel, Packer, Paragraph, TextRun } = docx;
+  const sections = await Promise.all(document.pages.map(async (page) => {
     const geometry = pageGeometry(page);
     const root = page.textFlow as RichTextNode;
-    const children = (root.content ?? []).flatMap((node) => {
+    const children: import('docx').FileChild[] = (root.content ?? []).flatMap((node) => {
+      if (node.type === 'table') return [tableFromRichNode(node, docx, document.settings.defaultFont)];
       if (node.type === 'heading') {
         const level = Number(node.attrs?.level ?? 1);
         const heading = level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3;
@@ -156,9 +176,24 @@ export async function exportDocx(document: EditorDocument) {
       const text = textFromNode(node).trim();
       return text ? [new Paragraph({ children: [new TextRun({ text, font: document.settings.defaultFont })] })] : [];
     });
+    for (const object of page.objects) {
+      if (object.type === 'image' && object.assetId) {
+        const asset = await getAsset(object.assetId);
+        const imageType = asset?.mediaType === 'image/png' ? 'png' : asset?.mediaType === 'image/gif' ? 'gif' : asset?.mediaType === 'image/bmp' ? 'bmp' : asset?.mediaType === 'image/jpeg' ? 'jpg' : null;
+        if (asset && imageType) children.push(new Paragraph({ children: [new docx.ImageRun({ type: imageType, data: await asset.blob.arrayBuffer(), transformation: { width: Math.max(20, Math.round(object.width)), height: Math.max(20, Math.round(object.height)) }, altText: { title: object.name || '삽입 이미지', description: object.name || '삽입 이미지', name: object.name || 'image' } })] }));
+      } else if (object.type === 'text-box') {
+        children.push(new docx.Table({ rows: [new docx.TableRow({ children: [new docx.TableCell({ shading: { fill: object.style?.background?.replace('#', '') || 'F7FAF9' }, children: [new Paragraph({ children: [new TextRun({ text: object.text || '', font: document.settings.defaultFont })] })] })] })], width: { size: Math.min(100, Math.max(15, Math.round((object.width / geometry.widthPx) * 100))), type: docx.WidthType.PERCENTAGE } }));
+      }
+    }
+    const alignment = document.settings.pageNumber.position.endsWith('right') ? docx.AlignmentType.RIGHT : docx.AlignmentType.CENTER;
+    const headerChildren = [new Paragraph({ alignment: document.settings.pageNumber.position === 'header-right' ? docx.AlignmentType.RIGHT : docx.AlignmentType.LEFT, children: [new TextRun(page.header ?? ''), ...(document.settings.pageNumber.enabled && document.settings.pageNumber.position === 'header-right' ? pageFieldRuns(document, docx) : [])] })];
+    const footerChildren = [new Paragraph({ alignment, children: [new TextRun(page.footer ?? ''), ...(document.settings.pageNumber.enabled && document.settings.pageNumber.position.startsWith('footer') ? pageFieldRuns(document, docx) : [])] })];
     return {
+      headers: { default: new docx.Header({ children: headerChildren }) },
+      footers: { default: new docx.Footer({ children: footerChildren }) },
       properties: {
         page: {
+          pageNumbers: { start: document.settings.pageNumber.start },
           size: { width: Math.round(geometry.widthMm * 56.7), height: Math.round(geometry.heightMm * 56.7) },
           margin: {
             top: Math.round(page.margins.top * 56.7),
@@ -170,9 +205,18 @@ export async function exportDocx(document: EditorDocument) {
       },
       children: children.length ? children : [new Paragraph({ children: [new TextRun({ text: '', font: document.settings.defaultFont })] })],
     };
-  });
+  }));
   const file = new Document({ sections });
-  downloadBlob(await Packer.toBlob(file), `${safeName(document.name)}.docx`);
+  const base = await Packer.toBlob(file);
+  const { default: JSZip } = await import('jszip');
+  const zip = await JSZip.loadAsync(base);
+  zip.file('customXml/our-ai-document.json', JSON.stringify({ format: 'our-ai-hangeul-objects-v1', pages: document.pages.map((page) => ({ objects: page.objects })) }));
+  for (const page of document.pages) for (const object of page.objects) if (object.assetId) { const asset = await getAsset(object.assetId); if (asset) zip.file(`customXml/assets/${object.assetId}`, asset.blob); }
+  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+}
+
+export async function exportDocx(document: EditorDocument) {
+  downloadBlob(await buildDocxBlob(document), `${safeName(document.name)}.docx`);
 }
 
 function escapeHtml(value: string) {

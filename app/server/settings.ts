@@ -47,6 +47,10 @@ export async function ensureDatabase() {
       db.prepare('CREATE TABLE IF NOT EXISTS admin_audit (id TEXT PRIMARY KEY NOT NULL, created_at TEXT NOT NULL, event TEXT NOT NULL, success INTEGER NOT NULL, client_hash TEXT NOT NULL)'),
       db.prepare('CREATE INDEX IF NOT EXISTS idx_ai_usage_client_created ON ai_usage (client_hash, created_at)'),
       db.prepare('CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit (created_at)'),
+      db.prepare('CREATE TABLE IF NOT EXISTS cloud_documents (id TEXT PRIMARY KEY NOT NULL, token_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL, snapshot TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, client_hash TEXT NOT NULL)'),
+      db.prepare('CREATE TABLE IF NOT EXISTS cloud_versions (id TEXT PRIMARY KEY NOT NULL, document_id TEXT NOT NULL, revision INTEGER NOT NULL, snapshot TEXT NOT NULL, created_at TEXT NOT NULL, client_hash TEXT NOT NULL)'),
+      db.prepare('CREATE INDEX IF NOT EXISTS idx_cloud_documents_token ON cloud_documents (token_hash)'),
+      db.prepare('CREATE INDEX IF NOT EXISTS idx_cloud_versions_document_revision ON cloud_versions (document_id, revision DESC)'),
     ]);
     const now = '2026-08-22T00:00:00.000Z';
     await db.batch(models.map((model) => db.prepare('INSERT OR IGNORE INTO model_registry (id, provider, label, tier, enabled, input_price, output_price, recommended_use, updated_at) VALUES (?, \'openai\', ?, ?, 1, ?, ?, ?, ?)').bind(model[0], model[1], model[2], model[3], model[4], model[5], now)));

@@ -158,6 +158,12 @@ export function PageCanvas({
     return Math.max(0.25, Math.min(scale, availableWidth / pageGeometry(page).widthPx));
   };
   const visibleScale = fittedScale(document.pages[currentPage]);
+  const pageNumberText = (index: number) => {
+    const value = document.settings.pageNumber.start + index;
+    if (document.settings.pageNumber.format === 'dash') return `- ${value} -`;
+    if (document.settings.pageNumber.format === 'page-of-total') return `${value} / 전체 ${document.settings.pageNumber.start + document.pages.length - 1}`;
+    return String(value);
+  };
 
   const dragMargin = (event: React.PointerEvent, page: DocumentPage, pageIndex: number, edge: MarginEdge) => {
     if (pageIndex !== currentPage) return;
@@ -237,8 +243,9 @@ export function PageCanvas({
             <div className="page-margin" style={{ width: geometry.widthPx, minHeight: geometry.heightPx, padding, fontFamily: document.settings.defaultFont, fontSize: `${document.settings.defaultFontSize}pt`, '--document-heading-font': document.settings.headingFont, '--document-heading-color': document.settings.headingColor, '--document-line-height': String(document.settings.lineHeight) } as React.CSSProperties}>
               {index === currentPage ? <EditorContent editor={editor} /> : <ReadOnlyRichText page={page} />}
             </div>
+              {(page.header || (document.settings.pageNumber.enabled && document.settings.pageNumber.position === 'header-right')) && <div className="page-header" style={{ top: Math.max(7, mmToPx(page.margins.top) / 2), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }}><span>{page.header}</span>{document.settings.pageNumber.enabled && document.settings.pageNumber.position === 'header-right' && <b>{pageNumberText(index)}</b>}</div>}
+              {(page.footer || (document.settings.pageNumber.enabled && document.settings.pageNumber.position.startsWith('footer'))) && <div className={`page-footer ${document.settings.pageNumber.position}`} style={{ bottom: Math.max(7, mmToPx(page.margins.bottom) / 2), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }}><span>{page.footer}</span>{document.settings.pageNumber.enabled && document.settings.pageNumber.position.startsWith('footer') && <b>{pageNumberText(index)}</b>}</div>}
               {index === currentPage ? <ObjectLayer objects={page.objects} pageWidth={geometry.widthPx} pageHeight={geometry.heightPx} displayScale={pageScale} selectedId={selectedObjectId} snapEnabled={document.settings.snapEnabled} guidesEnabled={document.settings.guidesEnabled} onSelect={onSelectObject} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} onChange={onObjectChange} onAction={onObjectAction} /> : <div className="object-layer read-only-layer">{page.objects.map((object) => <ReadOnlyObject key={object.id} object={object} />)}</div>}
-            <span className="page-number">{index + 1}</span>
             </article>
           </div>;
         })}
