@@ -6,8 +6,10 @@ import {
   AlignJustify,
   AlignLeft,
   AlignRight,
+  ArrowLeftRight,
   Bot,
   Columns3,
+  Eye,
   Download,
   FilePlus2,
   FileUp,
@@ -30,7 +32,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { useState } from 'react';
-import type { DocumentObject } from '../../domain/document';
+import { PAGE_PRESET_LABELS, type DocumentObject, type PagePreset } from '../../domain/document';
 
 function ToolButton({ label, children, onClick, active, disabled }: { label: string; children: React.ReactNode; onClick?: () => void; active?: boolean; disabled?: boolean }) {
   return <button className={active ? 'tool-button active' : 'tool-button'} type="button" onClick={onClick} disabled={disabled} aria-label={label} title={label}>{children}</button>;
@@ -55,11 +57,20 @@ export function EditorChrome({
   onAddPage,
   onDuplicatePage,
   onDeletePage,
+  pagePreset,
+  pageOrientation,
   onExport,
   onPrint,
   onAdmin,
   onToggleAi,
   onTogglePageNav,
+  onPagePreset,
+  onPageOrientation,
+  onResetMargins,
+  pageLayoutScope,
+  onTogglePageLayoutScope,
+  showPageGuides,
+  onTogglePageGuides,
   onZoom,
   onObjectAction,
 }: {
@@ -86,6 +97,15 @@ export function EditorChrome({
   onAdmin: () => void;
   onToggleAi: () => void;
   onTogglePageNav: () => void;
+  pagePreset: PagePreset;
+  pageOrientation: 'portrait' | 'landscape';
+  onPagePreset: (preset: PagePreset) => void;
+  onPageOrientation: () => void;
+  onResetMargins: () => void;
+  pageLayoutScope: 'current' | 'all';
+  onTogglePageLayoutScope: () => void;
+  showPageGuides: boolean;
+  onTogglePageGuides: () => void;
   onZoom: (value: number) => void;
   onObjectAction: (action: 'front' | 'back' | 'lock' | 'duplicate' | 'delete' | 'center-x' | 'center-y') => void;
 }) {
@@ -162,6 +182,17 @@ export function EditorChrome({
         <button className="label-tool" type="button" onClick={onAddPage}><FilePlus2 size={17} /> 페이지 추가</button>
         <button className="label-tool" type="button" onClick={onDuplicatePage}><Columns3 size={17} /> 현재 쪽 복제</button>
         <button className="label-tool danger" type="button" onClick={onDeletePage} disabled={pageCount <= 1}><Trash2 size={17} /> 현재 쪽 삭제</button>
+        <span className="divider" />
+        <button className="label-tool" type="button" onClick={onTogglePageLayoutScope}><ArrowLeftRight size={17} /> {pageLayoutScope === 'current' ? '현재 쪽' : '전체 쪽'}</button>
+        <label className="label-tool">
+          <span>문서 크기</span>
+          <select className="select-tool" value={pagePreset} onChange={(event) => onPagePreset(event.target.value as PagePreset)} aria-label="문서 크기">
+            {(Object.keys(PAGE_PRESET_LABELS) as PagePreset[]).map((preset) => <option key={preset} value={preset}>{PAGE_PRESET_LABELS[preset]}</option>)}
+          </select>
+        </label>
+        <button className="label-tool" type="button" onClick={onPageOrientation}><ArrowLeftRight size={17} /> {pageOrientation === 'portrait' ? '세로' : '가로'}로 전환</button>
+        <button className="label-tool" type="button" onClick={onResetMargins}><Layers2 size={17} /> 기본 여백으로 되돌리기</button>
+        <button className="label-tool" type="button" onClick={onTogglePageGuides}><Eye size={17} /> 가이드 {showPageGuides ? '숨기기' : '보기'}</button>
       </>}
       {menu === 'AI' && <>
         <button className="label-tool primary" type="button" onClick={onToggleAi}><Bot size={17} /> AI 문서도우미</button>

@@ -2,8 +2,10 @@ export const DOCUMENT_FORMAT_VERSION = '1.0.0';
 
 export const PAGE_PRESETS = {
   A4: { widthMm: 210, heightMm: 297 },
-  A3: { widthMm: 297, heightMm: 420 },
   A5: { widthMm: 148, heightMm: 210 },
+  B4: { widthMm: 257, heightMm: 364 },
+  A3: { widthMm: 297, heightMm: 420 },
+  B5: { widthMm: 176, heightMm: 250 },
   Letter: { widthMm: 215.9, heightMm: 279.4 },
   Legal: { widthMm: 215.9, heightMm: 355.6 },
 } as const;
@@ -23,6 +25,26 @@ export interface PageMargins {
   bottom: number;
   left: number;
 }
+
+export const DEFAULT_MARGINS_BY_PRESET: Record<PagePreset, PageMargins> = {
+  A4: { top: 25.4, right: 25.4, bottom: 25.4, left: 25.4 },
+  A5: { top: 25.4, right: 21, bottom: 25.4, left: 21 },
+  B4: { top: 25.4, right: 25.4, bottom: 25.4, left: 25.4 },
+  A3: { top: 25.4, right: 25.4, bottom: 25.4, left: 25.4 },
+  B5: { top: 22, right: 20, bottom: 22, left: 20 },
+  Letter: { top: 25.4, right: 25.4, bottom: 25.4, left: 25.4 },
+  Legal: { top: 25.4, right: 25.4, bottom: 25.4, left: 25.4 },
+};
+
+export const PAGE_PRESET_LABELS: Record<PagePreset, string> = {
+  A4: 'A4 (210×297mm)',
+  A5: 'A5 (148×210mm)',
+  B4: 'B4 (257×364mm)',
+  A3: 'A3 (297×420mm)',
+  B5: 'B5 (176×250mm)',
+  Letter: 'Letter (215.9×279.4mm)',
+  Legal: 'Legal (215.9×355.6mm)',
+};
 
 export interface DocumentObject {
   id: string;
@@ -87,15 +109,31 @@ export const emptyTextDocument = (): RichTextDocument => ({
 const paragraph = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
 const heading = (text: string, level = 1) => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] });
 
-export const createPage = (content: RichTextDocument = emptyTextDocument()): DocumentPage => ({
+export const templateDefaults: Record<string, { preset: PagePreset; orientation: Orientation; margins?: Partial<PageMargins> }> = {
+  blank: { preset: 'A4', orientation: 'portrait' },
+  report: { preset: 'A4', orientation: 'portrait', margins: { top: 25.4, right: 18, bottom: 25.4, left: 18 } },
+  official: { preset: 'A4', orientation: 'portrait', margins: { top: 22, right: 25.4, bottom: 25.4, left: 25.4 } },
+  minutes: { preset: 'A4', orientation: 'portrait', margins: { top: 20, right: 20, bottom: 20, left: 20 } },
+};
+
+export const createPage = (
+  content: RichTextDocument = emptyTextDocument(),
+  preset: PagePreset = 'A4',
+  orientation: Orientation = 'portrait',
+  margins: Partial<PageMargins> = {},
+): DocumentPage => ({
   id: crypto.randomUUID(),
-  preset: 'A4',
-  orientation: 'portrait',
-  margins: { top: 24, right: 22, bottom: 24, left: 22 },
+  preset,
+  orientation,
+  margins: { ...DEFAULT_MARGINS_BY_PRESET[preset], ...margins },
   background: '#ffffff',
   textFlow: content,
   objects: [],
 });
+
+export function defaultMarginsForPreset(preset: PagePreset): PageMargins {
+  return { ...DEFAULT_MARGINS_BY_PRESET[preset] };
+}
 
 const templateContent: Record<string, RichTextDocument> = {
   blank: emptyTextDocument(),
@@ -107,6 +145,8 @@ const templateContent: Record<string, RichTextDocument> = {
 export function createDocument(templateId = 'blank'): EditorDocument {
   const now = new Date().toISOString();
   const names: Record<string, string> = { blank: '새 문서', report: '새 보고서', official: '새 공문', minutes: '새 회의록' };
+  const template = templateDefaults[templateId] ?? templateDefaults.blank;
+  const content = templateContent[templateId] ?? emptyTextDocument();
   return {
     formatVersion: DOCUMENT_FORMAT_VERSION,
     id: crypto.randomUUID(),
@@ -114,7 +154,7 @@ export function createDocument(templateId = 'blank'): EditorDocument {
     createdAt: now,
     updatedAt: now,
     settings: { defaultFont: 'Noto Sans KR', defaultFontSize: 11, snapEnabled: true, guidesEnabled: true, autosaveDelayMs: 900 },
-    pages: [createPage(templateContent[templateId] ?? emptyTextDocument())],
+    pages: [createPage(content, template.preset, template.orientation, template.margins)],
     fonts: ['Noto Sans KR', 'Noto Serif KR', 'Nanum Gothic', 'Nanum Myeongjo'],
     comments: [],
   };

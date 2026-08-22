@@ -14,7 +14,7 @@ import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { AlertTriangle, FileCheck2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPage, duplicatePage, migrateDocument, type DocumentObject, type EditorDocument, type RichTextDocument } from '../domain/document';
+import { createPage, defaultMarginsForPreset, duplicatePage, migrateDocument, type DocumentObject, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
 import { pageGeometry } from '../domain/geometry';
 import { documentToText, exportHtml, exportPdf, exportSource, exportText } from '../infrastructure/export-service';
 import { importFile } from '../infrastructure/file-import';
@@ -43,6 +43,8 @@ function rowsToTable(rows: string[][]) {
 
 export function EditorApp() {
   const store = useDocumentState();
+  const pageLayoutScopeStorageKey = 'our-ai-hangeul:page-layout-scope';
+  const pageGuidesStorageKey = 'our-ai-hangeul:show-page-guides';
   const [screen, setScreen] = useState<'welcome' | 'editor'>('welcome');
   const [currentPage, setCurrentPage] = useState(0);
   const currentPageRef = useRef(0);
@@ -50,6 +52,22 @@ export function EditorApp() {
   const [aiOpen, setAiOpen] = useState(false);
   const [pageNavOpen, setPageNavOpen] = useState(true);
   const [zoom, setZoom] = useState(100);
+  const [pageLayoutScope, setPageLayoutScope] = useState<'current' | 'all'>(() => {
+    try {
+      const savedScope = localStorage.getItem(pageLayoutScopeStorageKey);
+      return savedScope === 'all' ? 'all' : 'current';
+    } catch {
+      return 'current';
+    }
+  });
+  const [showPageGuides, setShowPageGuides] = useState(() => {
+    try {
+      const savedGuides = localStorage.getItem(pageGuidesStorageKey);
+      return savedGuides === 'false' ? false : true;
+    } catch {
+      return true;
+    }
+  });
   const [adminOpen, setAdminOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
@@ -101,6 +119,14 @@ export function EditorApp() {
     editor.commands.setContent(page.textFlow as JSONContent, { emitUpdate: false });
     setSelectedObjectId(null);
   }, [currentPage, editor, store.document.pages]);
+
+  useEffect(() => {
+    try { localStorage.setItem(pageLayoutScopeStorageKey, pageLayoutScope); } catch { /* localStorage unavailable */ }
+  }, [pageLayoutScope]);
+
+  useEffect(() => {
+    try { localStorage.setItem(pageGuidesStorageKey, String(showPageGuides)); } catch { /* localStorage unavailable */ }
+  }, [showPageGuides]);
 
   useEffect(() => {
     if (screen === 'welcome') void listRecentDocuments().then(setRecent).catch(() => setRecent([]));
@@ -212,14 +238,53 @@ export function EditorApp() {
     else if (editor?.can().redo()) editor.chain().focus().redo().run();
   };
 
+  const currentPageState = store.document.pages[currentPage] ?? store.document.pages[0];
+  const onPagePreset = (nextPreset: PagePreset) => {
+    const nextMargins = defaultMarginsForPreset(nextPreset);
+    store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => {
+      if (pageLayoutScope === 'current' && index !== currentPage) return item;
+      return { ...item, preset: nextPreset, margins: nextMargins };
+    }) }));
+    documentActionAt.current = Date.now();
+  };
+
+  const onPageOrientation = () => {
+    const page = store.document.pages[currentPage];
+    const nextOrientation: Orientation = page.orientation === 'portrait' ? 'landscape' : 'portrait';
+    store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => {
+      if (pageLayoutScope === 'current' && index !== currentPage) return item;
+      return { ...item, orientation: nextOrientation };
+    }) }));
+    documentActionAt.current = Date.now();
+  };
+
+  const onResetMargins = () => {
+    store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => {
+      if (pageLayoutScope === 'current' && index !== currentPage) return item;
+      return { ...item, margins: defaultMarginsForPreset(item.preset) };
+    }) }));
+    documentActionAt.current = Date.now();
+  };
+
+  const onPageMarginsChange = (pageIndex: number, margins: PageMargins) => {
+    store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => {
+      if (pageLayoutScope === 'current' && index !== pageIndex) return item;
+      return { ...item, margins };
+    }) }), false);
+    documentActionAt.current = Date.now();
+  };
+
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const modifier = event.ctrlKey || event.metaKey;
       const target = event.target as HTMLElement | null;
       const typing = Boolean(target?.closest('input, textarea, [contenteditable="true"]'));
       if (modifier && event.key.toLowerCase() === 's') { event.preventDefault(); void store.saveNow(); }
+      if (modifier && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); }
+      if (modifier && event.shiftKey && event.key.toLowerCase() === 'z') { event.preventDefault(); redo(); }
       if (modifier && event.key.toLowerCase() === 'n') { event.preventDefault(); createNew(); }
       if (modifier && event.key.toLowerCase() === 'p') { event.preventDefault(); globalThis.print(); }
+      if (modifier && event.altKey && event.key.toLowerCase() === 'g') { event.preventDefault(); setShowPageGuides((value) => !value); }
       if (selectedObjectId && !typing && (event.key === 'Delete' || event.key === 'Backspace')) { event.preventDefault(); objectAction('delete'); }
       if (selectedObjectId && !typing && modifier && event.key.toLowerCase() === 'c') { const object = store.document.pages[currentPageRef.current].objects.find((item) => item.id === selectedObjectId); if (object) objectClipboard.current = structuredClone(object); }
       if (!typing && modifier && event.key.toLowerCase() === 'v' && objectClipboard.current) { event.preventDefault(); const copy = { ...structuredClone(objectClipboard.current), id: crypto.randomUUID(), x: objectClipboard.current.x + 18, y: objectClipboard.current.y + 18 }; store.updateDocument((document) => ({ ...document, pages: document.pages.map((page, index) => index === currentPageRef.current ? { ...page, objects: [...page.objects, copy] } : page) })); setSelectedObjectId(copy.id); }
@@ -240,10 +305,11 @@ export function EditorApp() {
       else if (type === 'print') globalThis.print();
       else {
         setExportBusy(true);
-        const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page'));
-        const transforms = pages.map((page) => page.style.transform);
-        pages.forEach((page) => { page.style.transform = 'none'; });
-        try { await exportPdf(store.document, pages, setExportMessage); } finally { pages.forEach((page, index) => { page.style.transform = transforms[index]; }); }
+        const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page'))
+          .map((page) => ({ page, pageIndex: Number(page.dataset.pageIndex ?? 0) }));
+        const transforms = pages.map((entry) => entry.page.style.transform);
+        pages.forEach(({ page }) => { page.style.transform = 'none'; });
+        try { await exportPdf(store.document, pages, setExportMessage); } finally { pages.forEach((entry, index) => { entry.page.style.transform = transforms[index]; }); }
       }
       if (type !== 'pdf') setExportMessage('파일 저장을 시작했습니다.');
     } catch (reason) { setExportMessage(reason instanceof Error ? reason.message : '내보내기에 실패했습니다.'); }
@@ -270,9 +336,60 @@ export function EditorApp() {
   </>;
 
   return <main className="editor-shell">
-    <EditorChrome editor={editor} documentName={store.document.name} saveLabel={saveLabel} selectedObject={selectedObject} pageCount={store.document.pages.length} currentPage={currentPage} zoom={zoom} aiOpen={aiOpen} pageNavOpen={pageNavOpen} onDocumentName={(name) => store.updateDocument((document) => ({ ...document, name }), false)} onUndo={undo} onRedo={redo} onSave={() => void store.saveNow()} onFiles={(files) => void handleFiles(files)} onNewDocument={() => setScreen('welcome')} onAddPage={() => addPage()} onDuplicatePage={duplicateCurrentPage} onDeletePage={deleteCurrentPage} onExport={() => { setExportOpen(true); setExportMessage(''); }} onPrint={() => globalThis.print()} onAdmin={() => setAdminOpen(true)} onToggleAi={() => setAiOpen((value) => !value)} onTogglePageNav={() => setPageNavOpen((value) => !value)} onZoom={setZoom} onObjectAction={objectAction} />
+    <EditorChrome
+      editor={editor}
+      documentName={store.document.name}
+      saveLabel={saveLabel}
+      selectedObject={selectedObject}
+      pageCount={store.document.pages.length}
+      currentPage={currentPage}
+      zoom={zoom}
+      aiOpen={aiOpen}
+      pageNavOpen={pageNavOpen}
+      onDocumentName={(name) => store.updateDocument((document) => ({ ...document, name }), false)}
+      onUndo={undo}
+      onRedo={redo}
+      onSave={() => void store.saveNow()}
+      onFiles={(files) => void handleFiles(files)}
+      onNewDocument={() => setScreen('welcome')}
+      onAddPage={() => addPage()}
+      onDuplicatePage={duplicateCurrentPage}
+      onDeletePage={deleteCurrentPage}
+      onExport={() => { setExportOpen(true); setExportMessage(''); }}
+      onPrint={() => globalThis.print()}
+      onAdmin={() => setAdminOpen(true)}
+      onToggleAi={() => setAiOpen((value) => !value)}
+      onTogglePageNav={() => setPageNavOpen((value) => !value)}
+      onZoom={setZoom}
+      onObjectAction={objectAction}
+      pagePreset={currentPageState.preset}
+      pageOrientation={currentPageState.orientation}
+      onPagePreset={onPagePreset}
+      onPageOrientation={onPageOrientation}
+      onResetMargins={onResetMargins}
+      pageLayoutScope={pageLayoutScope}
+      onTogglePageLayoutScope={() => setPageLayoutScope((value) => (value === 'current' ? 'all' : 'current'))}
+      showPageGuides={showPageGuides}
+      onTogglePageGuides={() => setShowPageGuides((value) => !value)}
+    />
     <section className={`${aiOpen ? 'workspace with-ai' : 'workspace'} ${pageNavOpen ? 'with-nav' : ''}`}>
-      <PageCanvas document={store.document} editor={editor} currentPage={currentPage} zoom={zoom} pageNavOpen={pageNavOpen} selectedObjectId={selectedObjectId} onCurrentPage={(page) => { setCurrentPage(page); pageIdRef.current = ''; }} onAddPage={() => addPage()} onSelectObject={setSelectedObjectId} onFiles={(files, page, position) => void handleFiles(files, page, position)} onGestureStart={beginGesture} onGestureEnd={finishGesture} onObjectChange={(id, patch) => updateObject(id, patch, false)} />
+      <PageCanvas
+        document={store.document}
+        editor={editor}
+        currentPage={currentPage}
+        zoom={zoom}
+        pageNavOpen={pageNavOpen}
+        selectedObjectId={selectedObjectId}
+        onCurrentPage={(page) => { setCurrentPage(page); pageIdRef.current = ''; }}
+        onAddPage={() => addPage()}
+        onSelectObject={setSelectedObjectId}
+        onFiles={(files, page, position) => void handleFiles(files, page, position)}
+        onGestureStart={beginGesture}
+        onGestureEnd={finishGesture}
+        onObjectChange={(id, patch) => updateObject(id, patch, false)}
+        onPageMarginsChange={onPageMarginsChange}
+        showGuides={showPageGuides}
+      />
       {aiOpen && <AIAssistantPanel selectedText={selectionText} documentText={documentToText(store.document)} onClose={() => setAiOpen(false)} onApply={applyAi} />}
     </section>
     <ExportDialog open={exportOpen} busy={exportBusy} message={exportMessage} onClose={() => setExportOpen(false)} onExport={(type) => void runExport(type)} />
