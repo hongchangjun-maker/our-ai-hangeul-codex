@@ -14,18 +14,20 @@ import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { AlertTriangle, FileCheck2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPage, defaultMarginsForPreset, duplicatePage, migrateDocument, type DocumentObject, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
+import { applyDocumentStylePreset, createPage, defaultMarginsForPreset, documentStylePreset, duplicatePage, migrateDocument, type DocumentObject, type DocumentStyleId, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
 import { pageGeometry } from '../domain/geometry';
-import { documentToText, exportHtml, exportPdf, exportSource, exportText } from '../infrastructure/export-service';
+import { collectDocumentFontFamilies, documentToText, exportDocx, exportHtml, exportPdf, exportSource, exportText } from '../infrastructure/export-service';
 import { importFile } from '../infrastructure/file-import';
 import { listRecentDocuments } from '../infrastructure/local-storage';
 import { AdminDialog } from './components/AdminDialog';
 import { AIAssistantPanel } from './components/AIAssistantPanel';
 import { EditorChrome } from './components/EditorChrome';
 import { ExportDialog } from './components/ExportDialog';
+import { FontLibraryDialog } from './components/FontLibraryDialog';
 import { PageCanvas } from './components/PageCanvas';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { FontSize, LineHeight } from './extensions/formatting';
+import { useFontPreferences } from './hooks/use-font-preferences';
 import { useDocumentState } from './hooks/use-document';
 
 function paragraphsFromText(text: string): RichTextDocument {
@@ -72,6 +74,8 @@ export function EditorApp() {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
+  const [fontLibraryOpen, setFontLibraryOpen] = useState(false);
+  const { favoriteFonts, toggleFavoriteFont } = useFontPreferences();
   const [recent, setRecent] = useState<EditorDocument[]>([]);
   const [selectionText, setSelectionText] = useState('');
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -296,12 +300,29 @@ export function EditorApp() {
     return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('wheel', wheel); };
   });
 
-  const runExport = async (type: 'pdf' | 'txt' | 'html' | 'source' | 'print') => {
+  const applyFontFromLibrary = (family: string) => {
+    editor?.chain().focus().setFontFamily(family).run();
+    setFontLibraryOpen(false);
+  };
+
+  const applyDocumentStyle = (styleId: DocumentStyleId) => {
+    const style = documentStylePreset(styleId);
+    store.updateDocument((document) => applyDocumentStylePreset(document, styleId));
+    setToast({ type: 'success', message: `${style.label} 기본 글꼴과 제목 스타일을 적용했습니다.` });
+  };
+
+  const runExport = async (type: 'pdf' | 'docx' | 'txt' | 'html' | 'source' | 'print') => {
     setExportMessage('');
     try {
       if (type === 'source') exportSource(store.document);
       else if (type === 'txt') exportText(store.document);
       else if (type === 'html') { const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page .page-margin')).map((element) => element.innerHTML); exportHtml(store.document, pages); }
+      else if (type === 'docx') {
+        setExportBusy(true);
+        setExportMessage('DOCX 문서를 준비하는 중…');
+        await exportDocx(store.document);
+        setExportMessage('DOCX 저장이 완료되었습니다.');
+      }
       else if (type === 'print') globalThis.print();
       else {
         setExportBusy(true);
@@ -311,7 +332,7 @@ export function EditorApp() {
         pages.forEach(({ page }) => { page.style.transform = 'none'; });
         try { await exportPdf(store.document, pages, setExportMessage); } finally { pages.forEach((entry, index) => { entry.page.style.transform = transforms[index]; }); }
       }
-      if (type !== 'pdf') setExportMessage('파일 저장을 시작했습니다.');
+      if (type !== 'pdf' && type !== 'docx') setExportMessage('파일 저장을 시작했습니다.');
     } catch (reason) { setExportMessage(reason instanceof Error ? reason.message : '내보내기에 실패했습니다.'); }
     finally { setExportBusy(false); }
   };
@@ -371,6 +392,10 @@ export function EditorApp() {
       onTogglePageLayoutScope={() => setPageLayoutScope((value) => (value === 'current' ? 'all' : 'current'))}
       showPageGuides={showPageGuides}
       onTogglePageGuides={() => setShowPageGuides((value) => !value)}
+      favoriteFonts={favoriteFonts}
+      documentStyleId={store.document.settings.documentStyleId}
+      onFontLibrary={() => setFontLibraryOpen(true)}
+      onDocumentStyle={applyDocumentStyle}
     />
     <section className={`${aiOpen ? 'workspace with-ai' : 'workspace'} ${pageNavOpen ? 'with-nav' : ''}`}>
       <PageCanvas
@@ -392,7 +417,8 @@ export function EditorApp() {
       />
       {aiOpen && <AIAssistantPanel selectedText={selectionText} documentText={documentToText(store.document)} onClose={() => setAiOpen(false)} onApply={applyAi} />}
     </section>
-    <ExportDialog open={exportOpen} busy={exportBusy} message={exportMessage} onClose={() => setExportOpen(false)} onExport={(type) => void runExport(type)} />
+    <ExportDialog open={exportOpen} busy={exportBusy} message={exportMessage} fontFamilies={collectDocumentFontFamilies(store.document)} onClose={() => setExportOpen(false)} onExport={(type) => void runExport(type)} />
+    <FontLibraryDialog open={fontLibraryOpen} favoriteFonts={favoriteFonts} onClose={() => setFontLibraryOpen(false)} onToggleFavorite={toggleFavoriteFont} onApply={applyFontFromLibrary} />
     <AdminDialog open={adminOpen} onClose={() => setAdminOpen(false)} />
     {toast && <div className={`toast ${toast.type}`} role="status"><span>{toast.message}</span><button type="button" onClick={() => setToast(null)} aria-label="알림 닫기"><X size={15} /></button></div>}
   </main>;

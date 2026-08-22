@@ -41,6 +41,8 @@ export const FEATURED_FONT_FAMILIES = [
   'JetBrains Mono',
 ] as const;
 
+export const DEFAULT_FAVORITE_FONT_FAMILIES = [...FEATURED_FONT_FAMILIES];
+
 export const KOREAN_FONTS = APP_FONTS.filter((font) => font.script === 'korean');
 export const ENGLISH_FONTS = APP_FONTS.filter((font) => font.script === 'english');
 export const FONT_FAMILIES = APP_FONTS.map((font) => font.family);

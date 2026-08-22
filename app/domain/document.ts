@@ -1,4 +1,4 @@
-export const DOCUMENT_FORMAT_VERSION = '1.0.0';
+export const DOCUMENT_FORMAT_VERSION = '1.1.0';
 
 export const PAGE_PRESETS = {
   A4: { widthMm: 210, heightMm: 297 },
@@ -24,6 +24,49 @@ export interface PageMargins {
   right: number;
   bottom: number;
   left: number;
+}
+
+export type DocumentStyleId = 'modern' | 'report' | 'classic' | 'presentation' | 'code';
+
+export interface DocumentStylePreset {
+  id: DocumentStyleId;
+  label: string;
+  description: string;
+  defaultFont: string;
+  headingFont: string;
+  defaultFontSize: number;
+  lineHeight: number;
+  headingColor: string;
+}
+
+export const DOCUMENT_STYLE_PRESETS: readonly DocumentStylePreset[] = [
+  { id: 'modern', label: '현대 문서', description: '깔끔한 기본 문서', defaultFont: 'Pretendard', headingFont: 'Pretendard', defaultFontSize: 11, lineHeight: 1.7, headingColor: '#173b32' },
+  { id: 'report', label: '보고서', description: '정돈된 업무 보고서', defaultFont: 'SUIT', headingFont: 'SUIT', defaultFontSize: 11, lineHeight: 1.65, headingColor: '#174f7f' },
+  { id: 'classic', label: '명조 문서', description: '읽기 편한 정갈한 문서', defaultFont: 'Gowun Batang', headingFont: 'Gowun Batang', defaultFontSize: 11, lineHeight: 1.8, headingColor: '#3f3126' },
+  { id: 'presentation', label: '발표 자료', description: '선명한 제목 중심 구성', defaultFont: 'Inter', headingFont: 'Montserrat', defaultFontSize: 11, lineHeight: 1.55, headingColor: '#6d2856' },
+  { id: 'code', label: '기술 문서', description: '코드와 명령어 중심 문서', defaultFont: 'JetBrains Mono', headingFont: 'Inter', defaultFontSize: 10, lineHeight: 1.65, headingColor: '#225f4f' },
+] as const;
+
+export const DEFAULT_DOCUMENT_STYLE_ID: DocumentStyleId = 'modern';
+
+export function documentStylePreset(id: DocumentStyleId = DEFAULT_DOCUMENT_STYLE_ID) {
+  return DOCUMENT_STYLE_PRESETS.find((preset) => preset.id === id) ?? DOCUMENT_STYLE_PRESETS[0];
+}
+
+export function applyDocumentStylePreset(document: EditorDocument, styleId: DocumentStyleId): EditorDocument {
+  const style = documentStylePreset(styleId);
+  return {
+    ...document,
+    settings: {
+      ...document.settings,
+      defaultFont: style.defaultFont,
+      defaultFontSize: style.defaultFontSize,
+      headingFont: style.headingFont,
+      headingColor: style.headingColor,
+      lineHeight: style.lineHeight,
+      documentStyleId: style.id,
+    },
+  };
 }
 
 export const DEFAULT_MARGINS_BY_PRESET: Record<PagePreset, PageMargins> = {
@@ -92,6 +135,10 @@ export interface EditorDocument {
   settings: {
     defaultFont: string;
     defaultFontSize: number;
+    headingFont: string;
+    headingColor: string;
+    lineHeight: number;
+    documentStyleId: DocumentStyleId;
     snapEnabled: boolean;
     guidesEnabled: boolean;
     autosaveDelayMs: number;
@@ -147,13 +194,14 @@ export function createDocument(templateId = 'blank'): EditorDocument {
   const names: Record<string, string> = { blank: '새 문서', report: '새 보고서', official: '새 공문', minutes: '새 회의록' };
   const template = templateDefaults[templateId] ?? templateDefaults.blank;
   const content = templateContent[templateId] ?? emptyTextDocument();
+  const style = documentStylePreset();
   return {
     formatVersion: DOCUMENT_FORMAT_VERSION,
     id: crypto.randomUUID(),
     name: names[templateId] ?? '새 문서',
     createdAt: now,
     updatedAt: now,
-    settings: { defaultFont: 'Pretendard', defaultFontSize: 11, snapEnabled: true, guidesEnabled: true, autosaveDelayMs: 900 },
+    settings: { defaultFont: style.defaultFont, defaultFontSize: style.defaultFontSize, headingFont: style.headingFont, headingColor: style.headingColor, lineHeight: style.lineHeight, documentStyleId: style.id, snapEnabled: true, guidesEnabled: true, autosaveDelayMs: 900 },
     pages: [createPage(content, template.preset, template.orientation, template.margins)],
     fonts: ['Pretendard', 'SUIT', 'Gowun Dodum', 'Gowun Batang', 'Black Han Sans', 'Jua', 'Nanum Pen Script', 'Inter', 'Roboto', 'Open Sans', 'Montserrat', 'Lora', 'Source Serif 4', 'Playfair Display', 'JetBrains Mono'],
     comments: [],
@@ -173,6 +221,25 @@ export function migrateDocument(input: unknown): EditorDocument {
   const candidate = input as Partial<EditorDocument>;
   if (!Array.isArray(candidate.pages) || candidate.pages.length === 0) throw new Error('문서에 페이지가 없습니다.');
   if (!candidate.id || !candidate.name) throw new Error('문서 식별 정보가 없습니다.');
+  if (candidate.formatVersion === '1.0.0') {
+    const style = documentStylePreset();
+    const legacySettings: Partial<EditorDocument['settings']> = candidate.settings ?? {};
+    return {
+      ...candidate,
+      formatVersion: DOCUMENT_FORMAT_VERSION,
+      settings: {
+        defaultFont: legacySettings.defaultFont || style.defaultFont,
+        defaultFontSize: legacySettings.defaultFontSize || style.defaultFontSize,
+        headingFont: legacySettings.defaultFont || style.headingFont,
+        headingColor: style.headingColor,
+        lineHeight: style.lineHeight,
+        documentStyleId: style.id,
+        snapEnabled: legacySettings.snapEnabled ?? true,
+        guidesEnabled: legacySettings.guidesEnabled ?? true,
+        autosaveDelayMs: legacySettings.autosaveDelayMs ?? 900,
+      },
+    } as EditorDocument;
+  }
   if (candidate.formatVersion !== DOCUMENT_FORMAT_VERSION) throw new Error(`지원하지 않는 문서 버전입니다: ${candidate.formatVersion ?? '알 수 없음'}`);
   return candidate as EditorDocument;
 }

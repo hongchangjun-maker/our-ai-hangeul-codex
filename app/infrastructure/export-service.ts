@@ -1,4 +1,5 @@
 import type { EditorDocument, RichTextDocument } from '../domain/document';
+import type { ParagraphChild, TextRun as DocxTextRun } from 'docx';
 import { pageGeometry } from '../domain/geometry';
 
 function safeName(name: string) {
@@ -22,6 +23,30 @@ function textFromNode(node: unknown): string {
   return ['paragraph', 'heading', 'listItem', 'tableRow'].includes(value.type ?? '') ? `${content}\n` : content;
 }
 
+type RichTextNode = {
+  type?: string;
+  text?: string;
+  attrs?: Record<string, unknown>;
+  marks?: Array<{ type?: string; attrs?: Record<string, unknown> }>;
+  content?: RichTextNode[];
+};
+
+function nodeFontFamilies(node: unknown, result: Set<string>) {
+  if (!node || typeof node !== 'object') return;
+  const value = node as RichTextNode;
+  for (const mark of value.marks ?? []) {
+    const family = mark.type === 'textStyle' ? mark.attrs?.fontFamily : undefined;
+    if (typeof family === 'string' && family) result.add(family);
+  }
+  value.content?.forEach((child) => nodeFontFamilies(child, result));
+}
+
+export function collectDocumentFontFamilies(document: EditorDocument) {
+  const families = new Set<string>([document.settings.defaultFont, document.settings.headingFont]);
+  document.pages.forEach((page) => nodeFontFamilies(page.textFlow, families));
+  return [...families].filter(Boolean);
+}
+
 export function documentToText(document: EditorDocument) {
   return document.pages.map((page, index) => `${document.pages.length > 1 ? `[${index + 1}쪽]\n` : ''}${textFromNode(page.textFlow)}`.trim()).join('\n\n');
 }
@@ -42,6 +67,59 @@ export function exportHtml(document: EditorDocument, pageHtml: string[]) {
   }).join('\n');
   const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(document.name)}</title><style>body{margin:0;background:#eee;font-family:"Noto Sans KR","Malgun Gothic",sans-serif}.page{box-sizing:border-box;margin:10mm auto;background:white;line-height:1.7}.page:last-of-type{page-break-after:auto;}@media print{body{background:white}.page{margin:0;page-break-after:always}}</style></head><body>${pages}</body></html>`;
   download(new Blob([html], { type: 'text/html;charset=utf-8' }), `${safeName(document.name)}.html`);
+}
+
+function textRunsFromNode(node: RichTextNode, fallbackFont: string, TextRun: typeof DocxTextRun): ParagraphChild[] {
+  if (node.type === 'text') {
+    const marks = node.marks ?? [];
+    const textStyle = marks.find((mark) => mark.type === 'textStyle');
+    const color = textStyle?.attrs?.color;
+    return [new TextRun({
+      text: node.text ?? '',
+      font: typeof textStyle?.attrs?.fontFamily === 'string' ? textStyle.attrs.fontFamily : fallbackFont,
+      bold: marks.some((mark) => mark.type === 'bold'),
+      italics: marks.some((mark) => mark.type === 'italic'),
+      strike: marks.some((mark) => mark.type === 'strike'),
+      color: typeof color === 'string' ? color.replace('#', '') : undefined,
+    })];
+  }
+  return (node.content ?? []).flatMap((child) => textRunsFromNode(child, fallbackFont, TextRun));
+}
+
+export async function exportDocx(document: EditorDocument) {
+  const { Document, HeadingLevel, Packer, Paragraph, TextRun } = await import('docx');
+  const sections = document.pages.map((page) => {
+    const geometry = pageGeometry(page);
+    const root = page.textFlow as RichTextNode;
+    const children = (root.content ?? []).flatMap((node) => {
+      if (node.type === 'heading') {
+        const level = Number(node.attrs?.level ?? 1);
+        const heading = level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3;
+        return [new Paragraph({ heading, children: textRunsFromNode(node, document.settings.headingFont, TextRun) })];
+      }
+      if (node.type === 'paragraph' || node.type === 'blockquote') {
+        return [new Paragraph({ children: textRunsFromNode(node, document.settings.defaultFont, TextRun) })];
+      }
+      const text = textFromNode(node).trim();
+      return text ? [new Paragraph({ children: [new TextRun({ text, font: document.settings.defaultFont })] })] : [];
+    });
+    return {
+      properties: {
+        page: {
+          size: { width: Math.round(geometry.widthMm * 56.7), height: Math.round(geometry.heightMm * 56.7) },
+          margin: {
+            top: Math.round(page.margins.top * 56.7),
+            right: Math.round(page.margins.right * 56.7),
+            bottom: Math.round(page.margins.bottom * 56.7),
+            left: Math.round(page.margins.left * 56.7),
+          },
+        },
+      },
+      children: children.length ? children : [new Paragraph({ children: [new TextRun({ text: '', font: document.settings.defaultFont })] })],
+    };
+  });
+  const file = new Document({ sections });
+  download(await Packer.toBlob(file), `${safeName(document.name)}.docx`);
 }
 
 function escapeHtml(value: string) {

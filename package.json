@@ -30,6 +30,7 @@
     "@tiptap/pm": "^3.30.2",
     "@tiptap/react": "^3.30.2",
     "@tiptap/starter-kit": "^3.30.2",
+    "docx": "^9.7.1",
     "drizzle-orm": "0.45.2",
     "html2canvas": "^1.4.1",
     "idb": "^8.0.3",

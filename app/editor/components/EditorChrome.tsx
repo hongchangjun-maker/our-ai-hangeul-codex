@@ -32,8 +32,8 @@ import {
   Undo2,
 } from 'lucide-react';
 import { useState } from 'react';
-import { PAGE_PRESET_LABELS, type DocumentObject, type PagePreset } from '../../domain/document';
-import { DEFAULT_FONT_FAMILY, ENGLISH_FONTS, FEATURED_FONT_FAMILIES, KOREAN_FONTS, fontLabel, isBundledFont } from '../font-catalog';
+import { DOCUMENT_STYLE_PRESETS, PAGE_PRESET_LABELS, type DocumentObject, type DocumentStyleId, type PagePreset } from '../../domain/document';
+import { DEFAULT_FAVORITE_FONT_FAMILIES, DEFAULT_FONT_FAMILY, ENGLISH_FONTS, KOREAN_FONTS, fontLabel, isBundledFont } from '../font-catalog';
 
 function ToolButton({ label, children, onClick, active, disabled }: { label: string; children: React.ReactNode; onClick?: () => void; active?: boolean; disabled?: boolean }) {
   return <button className={active ? 'tool-button active' : 'tool-button'} type="button" onClick={onClick} disabled={disabled} aria-label={label} title={label}>{children}</button>;
@@ -72,6 +72,10 @@ export function EditorChrome({
   onTogglePageLayoutScope,
   showPageGuides,
   onTogglePageGuides,
+  favoriteFonts,
+  documentStyleId,
+  onFontLibrary,
+  onDocumentStyle,
   onZoom,
   onObjectAction,
 }: {
@@ -107,6 +111,10 @@ export function EditorChrome({
   onTogglePageLayoutScope: () => void;
   showPageGuides: boolean;
   onTogglePageGuides: () => void;
+  favoriteFonts: string[];
+  documentStyleId: DocumentStyleId;
+  onFontLibrary: () => void;
+  onDocumentStyle: (styleId: DocumentStyleId) => void;
   onZoom: (value: number) => void;
   onObjectAction: (action: 'front' | 'back' | 'lock' | 'duplicate' | 'delete' | 'center-x' | 'center-y') => void;
 }) {
@@ -114,11 +122,13 @@ export function EditorChrome({
   const menus = ['파일', '글자', '삽입', '표', '페이지', 'AI', '보기'];
   const selectedFont = editor?.getAttributes('textStyle').fontFamily || DEFAULT_FONT_FAMILY;
   const applyFont = (family: string) => editor?.chain().focus().setFontFamily(family).run();
+  const quickFonts = (favoriteFonts.length ? favoriteFonts : DEFAULT_FAVORITE_FONT_FAMILIES).filter(isBundledFont).slice(0, 6);
 
   const textTools = <>
     <div className="quick-fonts" aria-label="자주 쓰는 글꼴">
       <span>바로 쓰기</span>
-      {FEATURED_FONT_FAMILIES.map((family) => <button key={family} className={selectedFont === family ? 'quick-font-button active' : 'quick-font-button'} type="button" style={{ fontFamily: family }} onClick={() => applyFont(family)} aria-label={`${fontLabel(family)} 글꼴 적용`}>{fontLabel(family)}</button>)}
+      {quickFonts.map((family) => <button key={family} className={selectedFont === family ? 'quick-font-button active' : 'quick-font-button'} type="button" style={{ fontFamily: family }} onClick={() => applyFont(family)} aria-label={`${fontLabel(family)} 글꼴 적용`}>{fontLabel(family)}</button>)}
+      <button className="quick-font-more" type="button" onClick={onFontLibrary}>전체 글꼴</button>
     </div>
     <span className="divider" />
     <select className="select-tool" aria-label="글꼴" value={selectedFont} onChange={(event) => applyFont(event.target.value)}>
@@ -129,6 +139,9 @@ export function EditorChrome({
         {ENGLISH_FONTS.map((font) => <option key={font.family} value={font.family}>{font.label} · {font.description}</option>)}
       </optgroup>
       {!isBundledFont(selectedFont) && <optgroup label="기존 문서 글꼴"><option value={selectedFont}>{selectedFont}</option></optgroup>}
+    </select>
+    <select className="style-tool" aria-label="문서 스타일" value={documentStyleId} onChange={(event) => onDocumentStyle(event.target.value as DocumentStyleId)}>
+      {DOCUMENT_STYLE_PRESETS.map((style) => <option key={style.id} value={style.id}>{style.label} · {style.description}</option>)}
     </select>
     <select className="size-tool" aria-label="글자 크기" value={(editor?.getAttributes('textStyle').fontSize || '11pt').replace('pt', '')} onChange={(event) => editor?.chain().focus().setFontSize(`${event.target.value}pt`).run()}>
       {[8,9,10,11,12,14,16,18,20,24,28,32,40,48].map((size) => <option key={size}>{size}</option>)}
