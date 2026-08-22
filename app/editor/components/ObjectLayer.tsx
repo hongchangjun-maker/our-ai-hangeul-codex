@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- user-owned local Blob URLs cannot use the Next image optimizer */
 
-import { Download, FileText, Grip, RotateCw } from 'lucide-react';
+import { Copy, Download, FileText, Grip, Layers, Lock, LockOpen, RotateCw, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { DocumentObject } from '../../domain/document';
 import { clamp, snapCoordinate } from '../../domain/geometry';
@@ -63,6 +63,7 @@ export function ObjectLayer({
   onGestureStart,
   onGestureEnd,
   onChange,
+  onAction,
 }: {
   objects: DocumentObject[];
   pageWidth: number;
@@ -74,8 +75,10 @@ export function ObjectLayer({
   onGestureStart: () => void;
   onGestureEnd: () => void;
   onChange: (id: string, patch: Partial<DocumentObject>) => void;
+  onAction: (action: 'front' | 'back' | 'lock' | 'duplicate' | 'delete' | 'center-x' | 'center-y') => void;
 }) {
   const [guide, setGuide] = useState<{ x?: number; y?: number }>({});
+  const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const byId = useMemo(() => new Map(objects.map((object) => [object.id, object])), [objects]);
 
   const beginMove = (event: React.PointerEvent, id: string) => {
@@ -169,7 +172,7 @@ export function ObjectLayer({
   };
 
   return (
-    <div className="object-layer" onPointerDown={(event) => { if (event.target === event.currentTarget) onSelect(null); }}>
+    <div className="object-layer" onPointerDown={(event) => { if (event.target === event.currentTarget) { onSelect(null); setContextMenu(null); } }}>
       {guide.x !== undefined && <span className="smart-guide vertical" style={{ left: guide.x }} />}
       {guide.y !== undefined && <span className="smart-guide horizontal" style={{ top: guide.y }} />}
       {objects.slice().sort((a, b) => a.zIndex - b.zIndex).map((object) => {
@@ -181,6 +184,13 @@ export function ObjectLayer({
             data-object-id={object.id}
             style={{ left: object.x, top: object.y, width: object.width, height: object.height, transform: `rotate(${object.rotation}deg)`, zIndex: object.zIndex, opacity: object.opacity, borderRadius: object.style?.borderRadius, boxShadow: object.style?.shadow ? '0 10px 26px rgba(23,45,38,.18)' : undefined }}
             onPointerDown={(event) => beginMove(event, object.id)}
+            onContextMenu={(event) => {
+              event.preventDefault(); event.stopPropagation(); onSelect(object.id);
+              const layer = event.currentTarget.closest('.object-layer');
+              const rect = layer?.getBoundingClientRect();
+              if (!rect) return;
+              setContextMenu({ id: object.id, x: (event.clientX - rect.left) * pageWidth / rect.width, y: (event.clientY - rect.top) * pageHeight / rect.height });
+            }}
           >
             <ObjectContent object={object} />
             {selected && !object.locked && <>
@@ -190,6 +200,13 @@ export function ObjectLayer({
           </div>
         );
       })}
+      {contextMenu && <div className="object-context-menu" role="menu" style={{ left: Math.min(contextMenu.x, pageWidth - 168), top: Math.min(contextMenu.y, pageHeight - 126) }}>
+        <button type="button" role="menuitem" onClick={() => { onAction('duplicate'); setContextMenu(null); }}><Copy size={14} /> 복제</button>
+        <button type="button" role="menuitem" onClick={() => { onAction('front'); setContextMenu(null); }}><Layers size={14} /> 맨 앞으로</button>
+        <button type="button" role="menuitem" onClick={() => { onAction('back'); setContextMenu(null); }}><Layers size={14} /> 맨 뒤로</button>
+        <button type="button" role="menuitem" onClick={() => { onAction('lock'); setContextMenu(null); }}>{byId.get(contextMenu.id)?.locked ? <LockOpen size={14} /> : <Lock size={14} />}{byId.get(contextMenu.id)?.locked ? '잠금 해제' : '잠금'}</button>
+        <button className="danger" type="button" role="menuitem" onClick={() => { onAction('delete'); setContextMenu(null); }}><Trash2 size={14} /> 삭제</button>
+      </div>}
     </div>
   );
 }

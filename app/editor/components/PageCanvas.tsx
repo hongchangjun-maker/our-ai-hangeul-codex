@@ -4,12 +4,13 @@
 
 import type { Editor } from '@tiptap/react';
 import { EditorContent } from '@tiptap/react';
-import { FileText, Plus } from 'lucide-react';
+import { FileText, Minus, Plus } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DocumentObject, DocumentPage, EditorDocument, PageMargins } from '../../domain/document';
 import { clamp, mmToPx, pageGeometry, pxToMm } from '../../domain/geometry';
 import { getAsset } from '../../infrastructure/local-storage';
 import { ObjectLayer } from './ObjectLayer';
+import { ObjectInspector } from './ObjectInspector';
 
 function roundMargin(mm: number) { return Math.round(mm * 10) / 10; }
 
@@ -106,8 +107,10 @@ export function PageCanvas({
   onGestureStart,
   onGestureEnd,
   onObjectChange,
+  onObjectAction,
   onPageMarginsChange,
   showGuides,
+  onZoom,
 }: {
   document: EditorDocument;
   editor: Editor | null;
@@ -121,14 +124,18 @@ export function PageCanvas({
   onFiles: (files: FileList, page: number, position: { x: number; y: number }) => void;
   onGestureStart: () => void;
   onGestureEnd: () => void;
-  onObjectChange: (id: string, patch: Partial<DocumentObject>) => void;
+  onObjectChange: (id: string, patch: Partial<DocumentObject>, history?: boolean) => void;
+  onObjectAction: (action: 'front' | 'back' | 'lock' | 'duplicate' | 'delete' | 'center-x' | 'center-y') => void;
   onPageMarginsChange: (pageIndex: number, margins: PageMargins) => void;
   showGuides: boolean;
+  onZoom: (zoom: number) => void;
 }) {
   const scale = zoom / 100;
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasWidth, setCanvasWidth] = useState(0);
   const [dragTip, setDragTip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [fileDragActive, setFileDragActive] = useState(false);
+  const selectedObject = document.pages[currentPage]?.objects.find((object) => object.id === selectedObjectId) ?? null;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -198,9 +205,10 @@ export function PageCanvas({
   };
 
   return <>
-    {pageNavOpen && <aside className="page-nav" aria-label="페이지 탐색"><div className="panel-title"><strong>쪽</strong><button type="button" onClick={onAddPage} aria-label="페이지 추가"><Plus size={15} /></button></div><div className="page-thumb-list">{document.pages.map((page, index) => <button className={index === currentPage ? 'page-thumb selected' : 'page-thumb'} type="button" key={page.id} onClick={() => onCurrentPage(index)}><span className="thumb-paper"><i /><i /><i /></span><small>{index + 1}</small></button>)}</div></aside>}
-    <div className="canvas-area" ref={canvasRef} onDragOver={(event) => event.preventDefault()}>
-      <div className="canvas-tools"><span>{document.pages[currentPage].preset} · {document.pages[currentPage].orientation === 'portrait' ? '세로' : '가로'}</span><span>{visibleScale < scale ? `화면 맞춤 ${Math.round(visibleScale * 100)}%` : `${zoom}%`}</span></div>
+    {pageNavOpen && <aside className="page-nav" aria-label="페이지 탐색 및 선택 속성"><div className="panel-title"><strong>페이지</strong><button type="button" onClick={onAddPage} aria-label="페이지 추가"><Plus size={15} /></button></div><div className="page-thumb-list">{document.pages.map((page, index) => <button className={index === currentPage ? 'page-thumb selected' : 'page-thumb'} type="button" key={page.id} onClick={() => onCurrentPage(index)}><span className="thumb-paper"><i /><i /><i /></span><small>{index + 1}</small></button>)}</div>{selectedObject && <ObjectInspector object={selectedObject} pageWidth={pageGeometry(document.pages[currentPage]).widthPx} pageHeight={pageGeometry(document.pages[currentPage]).heightPx} onChange={(patch) => onObjectChange(selectedObject.id, patch, true)} onAction={onObjectAction} />}</aside>}
+    <div className={fileDragActive ? 'canvas-area file-drag-active' : 'canvas-area'} ref={canvasRef} onDragOver={(event) => { event.preventDefault(); setFileDragActive(true); }} onDragLeave={(event) => { if (event.currentTarget === event.target) setFileDragActive(false); }} onDrop={() => setFileDragActive(false)}>
+      <div className="canvas-tools"><span>{document.pages[currentPage].preset} · {document.pages[currentPage].orientation === 'portrait' ? '세로' : '가로'}</span><span className="canvas-zoom"><button type="button" aria-label="축소" onClick={() => onZoom(Math.max(50, zoom - 25))}><Minus size={14} /></button><b>{visibleScale < scale ? `맞춤 ${Math.round(visibleScale * 100)}%` : `${zoom}%`}</b><button type="button" aria-label="확대" onClick={() => onZoom(Math.min(150, zoom + 25))}><Plus size={14} /></button></span></div>
+      {fileDragActive && <div className="canvas-drop-hint" role="status">파일을 놓으면 현재 쪽에 가져옵니다</div>}
       <div className="page-stack">
         {document.pages.map((page, index) => {
           const geometry = pageGeometry(page);
@@ -224,7 +232,7 @@ export function PageCanvas({
             <div className="page-margin" style={{ width: geometry.widthPx, minHeight: geometry.heightPx, padding, fontFamily: document.settings.defaultFont, fontSize: `${document.settings.defaultFontSize}pt`, '--document-heading-font': document.settings.headingFont, '--document-heading-color': document.settings.headingColor, '--document-line-height': String(document.settings.lineHeight) } as React.CSSProperties}>
               {index === currentPage ? <EditorContent editor={editor} /> : <ReadOnlyRichText page={page} />}
             </div>
-              {index === currentPage ? <ObjectLayer objects={page.objects} pageWidth={geometry.widthPx} pageHeight={geometry.heightPx} selectedId={selectedObjectId} snapEnabled={document.settings.snapEnabled} guidesEnabled={document.settings.guidesEnabled} onSelect={onSelectObject} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} onChange={onObjectChange} /> : <div className="object-layer read-only-layer">{page.objects.map((object) => <ReadOnlyObject key={object.id} object={object} />)}</div>}
+              {index === currentPage ? <ObjectLayer objects={page.objects} pageWidth={geometry.widthPx} pageHeight={geometry.heightPx} selectedId={selectedObjectId} snapEnabled={document.settings.snapEnabled} guidesEnabled={document.settings.guidesEnabled} onSelect={onSelectObject} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} onChange={onObjectChange} onAction={onObjectAction} /> : <div className="object-layer read-only-layer">{page.objects.map((object) => <ReadOnlyObject key={object.id} object={object} />)}</div>}
             <span className="page-number">{index + 1}</span>
             </article>
           </div>;

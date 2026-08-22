@@ -385,9 +385,11 @@ export function EditorApp() {
         onFiles={(files, page, position) => void handleFiles(files, page, position)}
         onGestureStart={beginGesture}
         onGestureEnd={finishGesture}
-        onObjectChange={(id, patch) => updateObject(id, patch, false)}
+        onObjectChange={(id, patch, history) => updateObject(id, patch, history)}
+        onObjectAction={objectAction}
         onPageMarginsChange={onPageMarginsChange}
         showGuides={showPageGuides}
+        onZoom={setZoom}
       />
       {aiOpen && <AIAssistantPanel selectedText={selectionText} documentText={documentToText(store.document)} onClose={() => setAiOpen(false)} onApply={applyAi} />}
     </section>
