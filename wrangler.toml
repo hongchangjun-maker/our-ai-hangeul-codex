@@ -1,0 +1,12 @@
+name = "our-ai-hangeul-codex"
+pages_build_output_dir = "dist/client"
+compatibility_date = "2026-08-22"
+compatibility_flags = ["nodejs_compat_v2"]
+
+[vars]
+APP_ENV = "production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "our-ai-hangeul-codex-db"
+database_id = "2855cda6-acff-4687-9f1f-d60ed730ca69"
