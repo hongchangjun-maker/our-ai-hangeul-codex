@@ -37,6 +37,7 @@ import {
   Trash2,
   Type,
   Undo2,
+  X,
 } from 'lucide-react';
 import { useState } from 'react';
 import { DOCUMENT_STYLE_PRESETS, PAGE_PRESET_LABELS, type DocumentObject, type DocumentStyleId, type PagePreset } from '../../domain/document';
@@ -88,6 +89,7 @@ export function EditorChrome({
   onFontLibrary,
   onDocumentStyle,
   onZoom,
+  onFitPage,
   onInsertObject,
   onObjectAction,
   documentText,
@@ -133,13 +135,23 @@ export function EditorChrome({
   onFontLibrary: () => void;
   onDocumentStyle: (styleId: DocumentStyleId) => void;
   onZoom: (value: number) => void;
+  onFitPage: () => void;
   onInsertObject: (type: 'text-box' | 'shape') => void;
   onObjectAction: (action: 'front' | 'back' | 'lock' | 'duplicate' | 'delete' | 'center-x' | 'center-y') => void;
   documentText: string;
   selectionText: string;
 }) {
-  const [menu, setMenu] = useState('글자');
-  const menus = ['파일', '글자', '삽입', '표', '페이지', '검토', 'AI', '보기'];
+  const [menu, setMenu] = useState<string | null>(null);
+  const menus = [
+    { label: '파일', icon: FileText },
+    { label: '글자', icon: Type },
+    { label: '삽입', icon: ImagePlus },
+    { label: '표', icon: Table2 },
+    { label: '페이지', icon: Columns3 },
+    { label: '검토', icon: Search },
+    { label: 'AI', icon: Sparkles },
+    { label: '보기', icon: Eye },
+  ];
   const selectedFont = editor?.getAttributes('textStyle').fontFamily || DEFAULT_FONT_FAMILY;
   const applyFont = (family: string) => editor?.chain().focus().setFontFamily(family).run();
   const quickFonts = (favoriteFonts.length ? favoriteFonts : DEFAULT_FAVORITE_FONT_FAMILIES).filter(isBundledFont).slice(0, 6);
@@ -208,31 +220,25 @@ export function EditorChrome({
   </>;
 
   return <>
-    <header className="topbar">
-      <button className="compact-brand" type="button" onClick={onNewDocument} aria-label="우리의 AI 한글 홈"><span>우</span><strong>우리의 AI 한글</strong></button>
+    <header className="editor-top-pill">
       <input className="document-name" value={documentName} maxLength={80} onChange={(event) => onDocumentName(event.target.value)} aria-label="문서 이름" />
-      <div className="top-actions">
-        <WindowModeControls compact />
-        <button className="save-state" type="button" onClick={onSave}><Save size={14} /> {saveLabel}</button>
-        <ToolButton label="실행 취소" onClick={onUndo}><Undo2 size={18} /></ToolButton>
-        <ToolButton label="다시 실행" onClick={onRedo}><Redo2 size={18} /></ToolButton>
-        <button className={aiOpen ? 'ai-button active' : 'ai-button'} type="button" onClick={onToggleAi}><Sparkles size={17} /> AI</button>
-        <ToolButton label="내보내기" onClick={onExport}><Download size={18} /></ToolButton>
-        <ToolButton label="클라우드 동기화" onClick={onCloudSync}><Cloud size={18} /></ToolButton>
-        <ToolButton label="인쇄" onClick={onPrint}><Printer size={18} /></ToolButton>
-        <ToolButton label="관리자" onClick={onAdmin}><Settings size={18} /></ToolButton>
-      </div>
+      <button className="save-state" type="button" onClick={onSave} title="지금 저장"><Save size={13} /><span>{saveLabel}</span></button>
     </header>
-    <nav className="menu-tabs" aria-label="문서 메뉴">
-      {menus.map((item) => <button className={menu === item ? 'selected' : ''} type="button" key={item} onClick={() => setMenu(item)}>{item}</button>)}
+    <nav className="editor-left-rail" aria-label="문서 도구">
+      <button className="rail-brand" type="button" onClick={onNewDocument} aria-label="우리의 AI 한글 홈" title="홈"><span>우</span></button>
+      {menus.map(({ label, icon: Icon }) => <button className={menu === label ? 'rail-button selected' : 'rail-button'} type="button" key={label} onClick={() => setMenu((value) => value === label ? null : label)} aria-label={label} aria-pressed={menu === label} title={label}><Icon size={20} /><span>{label}</span></button>)}
     </nav>
-    <section className="ribbon" aria-label={`${menu} 도구`}>
+    {menu && <aside className="tool-drawer" aria-label={`${menu} 도구 패널`}>
+      <header><span>{menu}</span><button type="button" onClick={() => setMenu(null)} aria-label={`${menu} 도구 닫기`} title="닫기"><X size={18} /></button></header>
+      <section className="ribbon" aria-label={`${menu} 도구`}>
       {menu === '파일' && <>
         <button className="label-tool" type="button" onClick={onNewDocument}><FilePlus2 size={17} /> 새 문서</button>
         <label className="label-tool file-label"><FileUp size={17} /> 열기<input type="file" accept=".hwpx,.docx,.odt,.rtf,.html,.htm,.md,.markdown,.txt,.csv,.json,.oah,image/*" multiple onChange={(event) => event.target.files && onFiles(event.target.files)} /></label>
         <button className="label-tool" type="button" onClick={onSave}><Save size={17} /> 지금 저장</button>
         <button className="label-tool" type="button" onClick={onExport}><Download size={17} /> 내보내기</button>
         <button className="label-tool" type="button" onClick={onPrint}><Printer size={17} /> 인쇄</button>
+        <button className="label-tool" type="button" onClick={onCloudSync}><Cloud size={17} /> 클라우드 동기화</button>
+        <button className="label-tool" type="button" onClick={onAdmin}><Settings size={17} /> 관리자 설정</button>
       </>}
       {menu === '글자' && textTools}
       {menu === '검토' && <button className="label-tool" type="button" onClick={onReview}><Search size={17} /> 찾기·바꾸기 / 맞춤법</button>}
@@ -268,7 +274,8 @@ export function EditorChrome({
       {menu === '보기' && <>
         <button className="label-tool" type="button" onClick={onTogglePageNav}>{pageNavOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />} 페이지 탐색</button>
         <button className="label-tool" type="button" onClick={() => onZoom(100)}>100%</button>
-        <button className="label-tool" type="button" onClick={() => onZoom(75)}>페이지 맞춤</button>
+        <button className="label-tool" type="button" onClick={onFitPage}>세로 한 쪽 맞춤</button>
+        <WindowModeControls compact />
       </>}
       {selectedObject && <div className="object-context-tools">
         <span className="divider" />
@@ -281,8 +288,23 @@ export function EditorChrome({
         <ToolButton label="복제" onClick={() => onObjectAction('duplicate')}><Columns3 size={17} /></ToolButton>
         <ToolButton label="삭제" onClick={() => onObjectAction('delete')}><Trash2 size={17} /></ToolButton>
       </div>}
-    </section>
-    <footer className="statusbar">
+      </section>
+    </aside>}
+    <div className="floating-quick-tools floating-left-tools" style={{ left: `max(74px, calc(50% - ${397 * zoom / 100 + 58}px))` }} aria-label="빠른 편집 도구">
+      <ToolButton label="저장" onClick={onSave}><Save size={19} /></ToolButton>
+      <ToolButton label="실행 취소" onClick={onUndo}><Undo2 size={19} /></ToolButton>
+      <ToolButton label="다시 실행" onClick={onRedo}><Redo2 size={19} /></ToolButton>
+    </div>
+    <div className="floating-quick-tools floating-right-tools" style={{ right: `max(14px, calc(50% - ${397 * zoom / 100 + 58}px))` }} aria-label="빠른 삽입과 출력 도구">
+      <ToolButton label="AI 문서도우미" active={aiOpen} onClick={onToggleAi}><Sparkles size={20} /></ToolButton>
+      <label className="floating-file-button" title="사진 또는 파일 삽입" aria-label="사진 또는 파일 삽입"><ImagePlus size={20} /><input type="file" multiple onChange={(event) => event.target.files && onFiles(event.target.files)} /></label>
+      <ToolButton label="글상자 삽입" onClick={() => onInsertObject('text-box')}><Type size={20} /></ToolButton>
+      <ToolButton label="표 삽입" onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><Table2 size={20} /></ToolButton>
+      <ToolButton label="새 페이지" onClick={onAddPage}><FilePlus2 size={20} /></ToolButton>
+      <ToolButton label="내보내기" onClick={onExport}><Download size={20} /></ToolButton>
+      <ToolButton label="인쇄" onClick={onPrint}><Printer size={20} /></ToolButton>
+    </div>
+    <footer className="statusbar status-pill">
       <span>{currentPage + 1}/{pageCount}쪽</span><span>{saveLabel}</span>
       <span className="document-stats">{selectionText ? `선택 ${selectionText.length.toLocaleString('ko-KR')}자` : `공백 포함 ${characters.toLocaleString('ko-KR')}자 · ${words.toLocaleString('ko-KR')}단어`}</span>
       <span className="zoom"><button type="button" onClick={() => onZoom(Math.max(50, zoom - 25))}>−</button><b>{zoom}%</b><button type="button" onClick={() => onZoom(Math.min(150, zoom + 25))}>+</button></span>

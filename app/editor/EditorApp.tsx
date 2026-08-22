@@ -34,18 +34,13 @@ import { useFontPreferences } from './hooks/use-font-preferences';
 import { useDocumentExport } from './hooks/use-document-export';
 import { useDocumentState } from './hooks/use-document';
 import { useAppDefaults } from './hooks/use-app-defaults'; import { useShareLinkLaunch } from './hooks/use-share-link-launch';
+import { useViewportZoom } from './hooks/use-viewport-zoom';
+import { rowsToTable } from './table-utils';
 function paragraphsFromText(text: string): RichTextDocument {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   return { type: 'doc', content: lines.map((line) => line ? { type: 'paragraph', content: [{ type: 'text', text: line }] } : { type: 'paragraph' }) };
 }
 
-function rowsToTable(rows: string[][]) {
-  const limited = rows.slice(0, 100).map((row) => row.slice(0, 20));
-  return {
-    type: 'table',
-    content: limited.map((row, rowIndex) => ({ type: 'tableRow', content: row.map((cell) => ({ type: rowIndex === 0 ? 'tableHeader' : 'tableCell', content: [{ type: 'paragraph', content: cell ? [{ type: 'text', text: cell.slice(0, 10_000) }] : undefined }] })) })),
-  };
-}
 export function EditorApp() {
   const store = useDocumentState();
   const { defaults: appDefaults, refresh: refreshAppDefaults } = useAppDefaults();
@@ -56,8 +51,7 @@ export function EditorApp() {
   const currentPageRef = useRef(0);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
-  const [pageNavOpen, setPageNavOpen] = useState(true);
-  const [zoom, setZoom] = useState(100);
+  const [pageNavOpen, setPageNavOpen] = useState(false);
   const [pageLayoutScope, setPageLayoutScope] = useState<'current' | 'all'>(() => {
     try {
       const savedScope = localStorage.getItem(pageLayoutScopeStorageKey);
@@ -261,6 +255,8 @@ export function EditorApp() {
   };
 
   const currentPageState = store.document.pages[currentPage] ?? store.document.pages[0];
+  const currentPageHeight = pageGeometry(currentPageState).heightPx;
+  const { zoom, fitPage, setManualZoom, stepZoom } = useViewportZoom(currentPageHeight);
   const onPagePreset = (nextPreset: PagePreset) => {
     const nextMargins = defaultMarginsForPreset(nextPreset);
     store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => {
@@ -312,7 +308,7 @@ export function EditorApp() {
       if (!typing && modifier && event.key.toLowerCase() === 'v' && objectClipboard.current) { event.preventDefault(); const copy = { ...structuredClone(objectClipboard.current), id: crypto.randomUUID(), x: objectClipboard.current.x + 18, y: objectClipboard.current.y + 18 }; store.updateDocument((document) => ({ ...document, pages: document.pages.map((page, index) => index === currentPageRef.current ? fitPageObjects({ ...page, objects: [...page.objects, copy] }) : page) })); setSelectedObjectId(copy.id); }
       if (event.key === 'Escape') setSelectedObjectId(null);
     };
-    const wheel = (event: WheelEvent) => { if (!event.ctrlKey) return; event.preventDefault(); setZoom((value) => Math.min(150, Math.max(50, value + (event.deltaY > 0 ? -25 : 25)))); };
+    const wheel = (event: WheelEvent) => { if (!event.ctrlKey) return; event.preventDefault(); stepZoom(event.deltaY > 0 ? -25 : 25); };
     window.addEventListener('keydown', keydown);
     window.addEventListener('wheel', wheel, { passive: false });
     return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('wheel', wheel); };
@@ -377,7 +373,8 @@ export function EditorApp() {
       onCloudSync={() => setCloudOpen(true)}
       onToggleAi={() => setAiOpen((value) => !value)}
       onTogglePageNav={() => setPageNavOpen((value) => !value)}
-      onZoom={setZoom}
+      onZoom={setManualZoom}
+      onFitPage={fitPage}
       onInsertObject={insertObject}
       onObjectAction={objectAction}
       documentText={documentToText(store.document)}
@@ -414,7 +411,7 @@ export function EditorApp() {
         onObjectAction={objectAction}
         onPageMarginsChange={onPageMarginsChange}
         showGuides={showPageGuides}
-        onZoom={setZoom}
+        onZoom={setManualZoom}
       />
       {aiOpen && <AIAssistantPanel selectedText={selectionText} documentText={documentToText(store.document)} onClose={() => setAiOpen(false)} onApply={applyAi} />}
     </section>
