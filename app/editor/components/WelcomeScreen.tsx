@@ -49,8 +49,8 @@ export function WelcomeScreen({
         </div>
         <label className="drop-zone">
           <ImagePlus size={22} />
-          <span><strong>파일을 여기에 끌어 놓아도 됩니다</strong><small>이미지, TXT, CSV와 일반 파일을 안전하게 열어요</small></span>
-          <input type="file" multiple onChange={(event) => event.target.files && onFile(event.target.files)} />
+          <span><strong>파일을 여기에 끌어 놓아도 됩니다</strong><small>HWPX · DOCX · ODT · RTF · HTML · Markdown · TXT를 바로 열어요</small></span>
+          <input type="file" accept=".hwpx,.docx,.odt,.rtf,.html,.htm,.md,.markdown,.txt,.csv,.json,.oah,image/*" multiple onChange={(event) => event.target.files && onFile(event.target.files)} />
         </label>
       </section>
       {recent.length > 0 && (

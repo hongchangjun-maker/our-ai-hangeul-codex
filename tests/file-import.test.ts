@@ -25,10 +25,8 @@ describe('file import boundary', () => {
     expect((await getAsset(result.object.assetId!))?.name).toBe('photo.png');
   });
 
-  it('keeps unsupported office files as truthful attachments', async () => {
+  it('rejects an invalid HWPX package instead of attaching it as a converted document', async () => {
     const file = new File(['placeholder'], 'sample.hwpx', { type: 'application/zip' });
-    const result = await importFile(file);
-    expect(result.kind).toBe('attachment');
-    if (result.kind === 'attachment') expect(result.notice).toContain('2차 호환 엔진');
+    await expect(importFile(file)).rejects.toThrow();
   });
 });

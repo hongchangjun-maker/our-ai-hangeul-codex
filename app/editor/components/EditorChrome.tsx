@@ -193,7 +193,7 @@ export function EditorChrome({
     <section className="ribbon" aria-label={`${menu} 도구`}>
       {menu === '파일' && <>
         <button className="label-tool" type="button" onClick={onNewDocument}><FilePlus2 size={17} /> 새 문서</button>
-        <label className="label-tool file-label"><FileUp size={17} /> 열기<input type="file" multiple onChange={(event) => event.target.files && onFiles(event.target.files)} /></label>
+        <label className="label-tool file-label"><FileUp size={17} /> 열기<input type="file" accept=".hwpx,.docx,.odt,.rtf,.html,.htm,.md,.markdown,.txt,.csv,.json,.oah,image/*" multiple onChange={(event) => event.target.files && onFiles(event.target.files)} /></label>
         <button className="label-tool" type="button" onClick={onSave}><Save size={17} /> 지금 저장</button>
         <button className="label-tool" type="button" onClick={onExport}><Download size={17} /> 내보내기</button>
         <button className="label-tool" type="button" onClick={onPrint}><Printer size={17} /> 인쇄</button>

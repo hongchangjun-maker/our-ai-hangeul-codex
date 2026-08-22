@@ -16,7 +16,7 @@ import { AlertTriangle, FileCheck2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { applyDocumentStylePreset, createPage, defaultMarginsForPreset, documentStylePreset, duplicatePage, migrateDocument, type DocumentObject, type DocumentStyleId, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
 import { pageGeometry } from '../domain/geometry';
-import { collectDocumentFontFamilies, documentToText, exportDocx, exportHtml, exportPdf, exportSource, exportText } from '../infrastructure/export-service';
+import { collectDocumentFontFamilies, documentToText } from '../infrastructure/export-service';
 import { importFile } from '../infrastructure/file-import';
 import { listRecentDocuments } from '../infrastructure/local-storage';
 import { AdminDialog } from './components/AdminDialog';
@@ -28,6 +28,7 @@ import { PageCanvas } from './components/PageCanvas';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { FontSize, LineHeight } from './extensions/formatting';
 import { useFontPreferences } from './hooks/use-font-preferences';
+import { useDocumentExport } from './hooks/use-document-export';
 import { useDocumentState } from './hooks/use-document';
 
 function paragraphsFromText(text: string): RichTextDocument {
@@ -72,8 +73,7 @@ export function EditorApp() {
   });
   const [adminOpen, setAdminOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportBusy, setExportBusy] = useState(false);
-  const [exportMessage, setExportMessage] = useState('');
+  const { busy: exportBusy, message: exportMessage, clearMessage: clearExportMessage, runExport } = useDocumentExport(store.document);
   const [fontLibraryOpen, setFontLibraryOpen] = useState(false);
   const { favoriteFonts, toggleFavoriteFont } = useFontPreferences();
   const [recent, setRecent] = useState<EditorDocument[]>([]);
@@ -311,32 +311,6 @@ export function EditorApp() {
     setToast({ type: 'success', message: `${style.label} 기본 글꼴과 제목 스타일을 적용했습니다.` });
   };
 
-  const runExport = async (type: 'pdf' | 'docx' | 'txt' | 'html' | 'source' | 'print') => {
-    setExportMessage('');
-    try {
-      if (type === 'source') exportSource(store.document);
-      else if (type === 'txt') exportText(store.document);
-      else if (type === 'html') { const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page .page-margin')).map((element) => element.innerHTML); exportHtml(store.document, pages); }
-      else if (type === 'docx') {
-        setExportBusy(true);
-        setExportMessage('DOCX 문서를 준비하는 중…');
-        await exportDocx(store.document);
-        setExportMessage('DOCX 저장이 완료되었습니다.');
-      }
-      else if (type === 'print') globalThis.print();
-      else {
-        setExportBusy(true);
-        const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page'))
-          .map((page) => ({ page, pageIndex: Number(page.dataset.pageIndex ?? 0) }));
-        const transforms = pages.map((entry) => entry.page.style.transform);
-        pages.forEach(({ page }) => { page.style.transform = 'none'; });
-        try { await exportPdf(store.document, pages, setExportMessage); } finally { pages.forEach((entry, index) => { entry.page.style.transform = transforms[index]; }); }
-      }
-      if (type !== 'pdf' && type !== 'docx') setExportMessage('파일 저장을 시작했습니다.');
-    } catch (reason) { setExportMessage(reason instanceof Error ? reason.message : '내보내기에 실패했습니다.'); }
-    finally { setExportBusy(false); }
-  };
-
   const applyAi = (text: string, mode: 'insert' | 'append' | 'replace' | 'new-page') => {
     const nodes = paragraphsFromText(text).content ?? [];
     if (mode === 'new-page') { addPage(paragraphsFromText(text)); return; }
@@ -376,7 +350,7 @@ export function EditorApp() {
       onAddPage={() => addPage()}
       onDuplicatePage={duplicateCurrentPage}
       onDeletePage={deleteCurrentPage}
-      onExport={() => { setExportOpen(true); setExportMessage(''); }}
+      onExport={() => { setExportOpen(true); clearExportMessage(); }}
       onPrint={() => globalThis.print()}
       onAdmin={() => setAdminOpen(true)}
       onToggleAi={() => setAiOpen((value) => !value)}

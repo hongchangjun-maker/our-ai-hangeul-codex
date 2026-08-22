@@ -59,6 +59,80 @@ export function exportText(document: EditorDocument) {
   download(new Blob([documentToText(document)], { type: 'text/plain;charset=utf-8' }), `${safeName(document.name)}.txt`);
 }
 
+type DocumentBlock = { text: string; heading?: number; bullet?: boolean; pageBreak?: boolean };
+
+function documentBlocks(document: EditorDocument): DocumentBlock[] {
+  return document.pages.flatMap((page, pageIndex) => {
+    const root = page.textFlow as RichTextNode;
+    const blocks = (root.content ?? []).map((node) => ({
+      text: textFromNode(node).trim(),
+      heading: node.type === 'heading' ? Number(node.attrs?.level ?? 1) : undefined,
+      bullet: node.type === 'bulletList' || node.type === 'orderedList',
+    })).filter((block) => block.text);
+    return pageIndex && blocks.length ? [{ text: '', pageBreak: true }, ...blocks] : blocks;
+  });
+}
+
+export function exportMarkdown(document: EditorDocument) {
+  const markdown = documentBlocks(document).map((block) => block.pageBreak ? '\n---\n' : `${block.heading ? `${'#'.repeat(Math.min(3, block.heading))} ` : block.bullet ? '- ' : ''}${block.text}`).join('\n\n');
+  download(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }), `${safeName(document.name)}.md`);
+}
+
+function rtfEscape(value: string) {
+  return Array.from(value).map((character) => {
+    if (character === '\\' || character === '{' || character === '}') return `\\${character}`;
+    const code = character.codePointAt(0) ?? 0;
+    return code > 127 ? `\\u${code > 32_767 ? code - 65_536 : code}?` : character;
+  }).join('');
+}
+
+export function exportRtf(document: EditorDocument) {
+  const body = documentBlocks(document).map((block) => block.pageBreak ? '\\page' : `${block.heading ? `\\b\\fs${32 - (block.heading - 1) * 4} ` : ''}${rtfEscape(block.bullet ? `• ${block.text}` : block.text)}${block.heading ? '\\b0\\fs22' : ''}\\par`).join('\n');
+  download(new Blob([`{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\viewkind4\\uc1\\pard\\f0\\fs22\n${body}\n}`], { type: 'application/rtf' }), `${safeName(document.name)}.rtf`);
+}
+
+function escapeXml(value: string) {
+  return value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&apos;', '"': '&quot;' })[character] ?? character);
+}
+
+async function packageDownload(files: Array<{ name: string; content: string; store?: boolean }>, filename: string, type: string) {
+  const { default: JSZip } = await import('jszip');
+  const zip = new JSZip();
+  files.forEach((file) => zip.file(file.name, file.content, { compression: file.store ? 'STORE' : 'DEFLATE' }));
+  const archive = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  download(new Blob([archive], { type }), filename);
+}
+
+export async function exportOdt(document: EditorDocument) {
+  const body = documentBlocks(document).map((block) => block.pageBreak ? '<text:p text:style-name="PageBreak"/>' : block.heading ? `<text:h text:outline-level="${Math.min(3, block.heading)}">${escapeXml(block.text)}</text:h>` : `<text:p>${escapeXml(block.bullet ? `• ${block.text}` : block.text)}</text:p>`).join('');
+  const content = `<?xml version="1.0" encoding="UTF-8"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.3"><office:body><office:text>${body}</office:text></office:body></office:document-content>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" office:version="1.3"><office:styles/></office:document-styles>`;
+  const meta = `<?xml version="1.0" encoding="UTF-8"?><office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/" office:version="1.3"><office:meta><dc:title>${escapeXml(document.name)}</dc:title></office:meta></office:document-meta>`;
+  const manifest = `<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3"><manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/><manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/><manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/></manifest:manifest>`;
+  await packageDownload([
+    { name: 'mimetype', content: 'application/vnd.oasis.opendocument.text', store: true },
+    { name: 'content.xml', content }, { name: 'styles.xml', content: styles }, { name: 'meta.xml', content: meta }, { name: 'META-INF/manifest.xml', content: manifest },
+  ], `${safeName(document.name)}.odt`, 'application/vnd.oasis.opendocument.text');
+}
+
+function hwpxSection(document: EditorDocument) {
+  const paragraphs = documentBlocks(document).filter((block) => !block.pageBreak).map((block, index) => `<hp:p id="${index}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>${escapeXml(block.bullet ? `• ${block.text}` : block.text)}</hp:t></hp:run></hp:p>`).join('');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">${paragraphs || '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t></hp:t></hp:run></hp:p>'}</hs:sec>`;
+}
+
+export async function exportHwpx(document: EditorDocument) {
+  const contentHpf = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><opf:package xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/"><opf:metadata><dc:title>${escapeXml(document.name)}</dc:title></opf:metadata><opf:manifest><opf:item id="header" href="header.xml" media-type="application/xml"/><opf:item id="section0" href="section0.xml" media-type="application/xml"/><opf:item id="version" href="../version.xml" media-type="application/xml"/></opf:manifest><opf:spine><opf:itemref idref="header"/><opf:itemref idref="section0"/></opf:spine></opf:package>`;
+  const header = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" version="1.3.0" secCnt="1"><hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/></hh:head>`;
+  const container = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf"><ocf:rootfiles><ocf:rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/></ocf:rootfiles></ocf:container>`;
+  const manifest = `<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"><manifest:file-entry manifest:full-path="/" manifest:media-type="application/hwp+zip"/><manifest:file-entry manifest:full-path="Contents/content.hpf" manifest:media-type="application/hwpml-package+xml"/><manifest:file-entry manifest:full-path="Contents/header.xml" manifest:media-type="application/xml"/><manifest:file-entry manifest:full-path="Contents/section0.xml" manifest:media-type="application/xml"/></manifest:manifest>`;
+  await packageDownload([
+    { name: 'mimetype', content: 'application/hwp+zip', store: true },
+    { name: 'META-INF/container.xml', content: container }, { name: 'META-INF/manifest.xml', content: manifest },
+    { name: 'Contents/content.hpf', content: contentHpf }, { name: 'Contents/header.xml', content: header }, { name: 'Contents/section0.xml', content: hwpxSection(document) },
+    { name: 'version.xml', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" targetApplication="WORDPROCESSOR" major="5" minor="0" micro="5" buildNumber="0" os="1" xmlVersion="1.4" application="Hancom Office Hangul" appVersion="9, 1, 1, 5656 WIN32LEWindows_Unknown_Version"/>' },
+  ], `${safeName(document.name)}.hwpx`, 'application/hwp+zip');
+}
+
 export function exportHtml(document: EditorDocument, pageHtml: string[]) {
   const pages = pageHtml.map((html, index) => {
     const page = document.pages[index];

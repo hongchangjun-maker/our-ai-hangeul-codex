@@ -1,5 +1,6 @@
 import type { EditorDocument, DocumentObject } from '../domain/document';
 import { storeAsset } from './local-storage';
+import { WORD_IMPORT_EXTENSIONS, importWordDocument } from './word-formats';
 
 export const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']);
 export const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
@@ -65,10 +66,18 @@ export async function importFile(file: File, position = { x: 90, y: 120 }): Prom
     if (parsed.formatVersion && Array.isArray(parsed.pages)) return { kind: 'document', document: parsed };
   }
 
+  if ((WORD_IMPORT_EXTENSIONS as readonly string[]).includes(extension)) {
+    return { kind: 'document', document: await importWordDocument(file, extension) };
+  }
+
+  if (['hwp', 'doc'].includes(extension)) {
+    throw new Error(`.${extension.toUpperCase()} 구형 바이너리 문서는 브라우저에서 안전하게 변환할 수 없습니다. 한글 또는 Word에서 HWPX·DOCX로 저장한 뒤 가져오세요.`);
+  }
+
   if (file.size > MAX_ATTACHMENT_BYTES) throw new Error('첨부 파일은 50MB 이하만 보관할 수 있습니다.');
   const asset = await storeAsset(file, file.name, file.type || 'application/octet-stream');
-  const compatibilityNotice = ['hwpx', 'hwp', 'docx', 'xlsx', 'pptx', 'pdf'].includes(extension)
-    ? '내용 변환은 2차 호환 엔진 범위입니다. 현재는 원본 파일을 안전하게 첨부했습니다.'
+  const compatibilityNotice = ['xlsx', 'pptx', 'pdf'].includes(extension)
+    ? '이 파일은 워드프로세서 문서 변환 대상이 아니므로 원본 첨부로 보관했습니다.'
     : undefined;
   return {
     kind: 'attachment',
