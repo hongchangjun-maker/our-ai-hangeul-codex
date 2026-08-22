@@ -2,6 +2,7 @@
 
 import { Clock3, FileText, ImagePlus, Settings, Sparkles } from 'lucide-react';
 import type { EditorDocument } from '../../domain/document';
+import { WindowModeControls } from './WindowModeControls';
 
 const templates = [
   { id: 'blank', label: '빈 문서', description: 'A4 문서를 처음부터 만들어요', color: 'mint' },
@@ -32,20 +33,18 @@ export function WelcomeScreen({
           <span className="brand-mark">우</span>
           <span><strong>우리의 AI 한글</strong><small>문서는 어렵지 않아야 합니다.</small></span>
         </button>
-        <button className="quiet-button" type="button" onClick={onAdmin}><Settings size={17} /> 관리자</button>
+        <div className="welcome-actions"><WindowModeControls /><button className="quiet-button" type="button" onClick={onAdmin}><Settings size={17} /> 관리자</button></div>
       </header>
       <section className="welcome-hero" aria-labelledby="welcome-title">
-        <span className="eyebrow"><Sparkles size={15} /> 누구나 5분 안에 만드는 한글 문서</span>
-        <h1 id="welcome-title">무엇을 만들까요?</h1>
-        <p>어려운 메뉴를 찾지 않아도 됩니다. 문서 종류를 고르면 바로 시작할 수 있어요.</p>
-        <div className="template-grid">
-          {templates.map((template) => (
-            <button className="template-card" type="button" key={template.id} onClick={() => onCreate(template.id)}>
-              <span className={`template-preview ${template.color}`}><span /><span /><span /></span>
-              <strong>{template.label}</strong>
-              <small>{template.description}</small>
-            </button>
-          ))}
+        <div className="welcome-banner">
+          <div className="welcome-banner-copy">
+            <span className="eyebrow"><Sparkles size={15} /> 누구나 5분 안에 만드는 한글 문서</span>
+            <h1 id="welcome-title">생각을 문서로,<br />더 자연스럽게</h1>
+            <p>표준 문서부터 AI 검토와 공동 편집까지 한곳에서 시작하세요.</p>
+            <div className="template-choices" aria-label="새 문서 종류">
+              {templates.map((template) => <button type="button" key={template.id} onClick={() => onCreate(template.id)} title={template.description}>{template.label}</button>)}
+            </div>
+          </div>
         </div>
         <label className="drop-zone">
           <ImagePlus size={22} />

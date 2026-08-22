@@ -1,13 +1,14 @@
 import type { NextConfig } from 'next';
 
 const development = process.env.NODE_ENV !== 'production';
+const collaborationOrigin = 'https://our-ai-hangeul-collaboration.hhongcjun.workers.dev';
 const contentSecurityPolicy = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${development ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data:",
   "font-src 'self' data:",
-  `connect-src 'self'${development ? ' ws: wss:' : ''}`,
+  `connect-src 'self' ${collaborationOrigin} ${collaborationOrigin.replace('https:', 'wss:')}${development ? ' ws: wss:' : ''}`,
   "media-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",

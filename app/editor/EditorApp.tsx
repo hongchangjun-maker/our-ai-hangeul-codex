@@ -27,13 +27,13 @@ import { FontLibraryDialog } from './components/FontLibraryDialog';
 import { CloudSyncDialog } from './components/CloudSyncDialog';
 import { PageSetupDialog } from './components/PageSetupDialog'; import { ReviewDialog } from './components/ReviewDialog';
 import { PageCanvas } from './components/PageCanvas';
+import { RealtimeCollaboration } from './components/RealtimeCollaboration';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { FontSize, LineHeight } from './extensions/formatting';
 import { useFontPreferences } from './hooks/use-font-preferences';
 import { useDocumentExport } from './hooks/use-document-export';
 import { useDocumentState } from './hooks/use-document';
-import { useAppDefaults } from './hooks/use-app-defaults';
-
+import { useAppDefaults } from './hooks/use-app-defaults'; import { useShareLinkLaunch } from './hooks/use-share-link-launch';
 function paragraphsFromText(text: string): RichTextDocument {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   return { type: 'doc', content: lines.map((line) => line ? { type: 'paragraph', content: [{ type: 'text', text: line }] } : { type: 'paragraph' }) };
@@ -46,13 +46,12 @@ function rowsToTable(rows: string[][]) {
     content: limited.map((row, rowIndex) => ({ type: 'tableRow', content: row.map((cell) => ({ type: rowIndex === 0 ? 'tableHeader' : 'tableCell', content: [{ type: 'paragraph', content: cell ? [{ type: 'text', text: cell.slice(0, 10_000) }] : undefined }] })) })),
   };
 }
-
 export function EditorApp() {
   const store = useDocumentState();
   const { defaults: appDefaults, refresh: refreshAppDefaults } = useAppDefaults();
   const pageLayoutScopeStorageKey = 'our-ai-hangeul:page-layout-scope';
   const pageGuidesStorageKey = 'our-ai-hangeul:show-page-guides';
-  const [screen, setScreen] = useState<'welcome' | 'editor'>(() => { try { return new URLSearchParams(location.search).has('share') ? 'editor' : 'welcome'; } catch { return 'welcome'; } });
+  const [screen, setScreen] = useState<'welcome' | 'editor'>('welcome');
   const [currentPage, setCurrentPage] = useState(0);
   const currentPageRef = useRef(0);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
@@ -80,7 +79,8 @@ export function EditorApp() {
   const { busy: exportBusy, message: exportMessage, clearMessage: clearExportMessage, runExport } = useDocumentExport(store.document);
   const [fontLibraryOpen, setFontLibraryOpen] = useState(false);
   const [pageSetupOpen, setPageSetupOpen] = useState(false); const [reviewOpen, setReviewOpen] = useState(false);
-  const [cloudOpen, setCloudOpen] = useState(() => { try { return new URLSearchParams(location.search).has('share'); } catch { return false; } });
+  const [cloudOpen, setCloudOpen] = useState(false);
+  useShareLinkLaunch(setScreen, setCloudOpen);
   const { favoriteFonts, toggleFavoriteFont } = useFontPreferences();
   const [recent, setRecent] = useState<EditorDocument[]>([]);
   const [selectionText, setSelectionText] = useState('');
@@ -349,6 +349,7 @@ export function EditorApp() {
   </>;
 
   return <main className="editor-shell">
+    <RealtimeCollaboration key={store.document.id} editor={editor} document={store.document} currentPage={currentPage} onRemotePage={(pageId, page) => store.updateDocument((document) => ({ ...document, pages: document.pages.map((value) => value.id === pageId ? page : value) }), false)} />
     <EditorChrome
       editor={editor}
       documentName={store.document.name}
@@ -421,7 +422,7 @@ export function EditorApp() {
     <FontLibraryDialog open={fontLibraryOpen} favoriteFonts={favoriteFonts} onClose={() => setFontLibraryOpen(false)} onToggleFavorite={toggleFavoriteFont} onApply={applyFontFromLibrary} />
     <PageSetupDialog open={pageSetupOpen} document={store.document} currentPage={currentPage} onChange={store.replaceDocument} onClose={() => setPageSetupOpen(false)} />
     <ReviewDialog open={reviewOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setReviewOpen(false)} />
-    <CloudSyncDialog open={cloudOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setCloudOpen(false)} />
+    <CloudSyncDialog key={store.document.id} open={cloudOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setCloudOpen(false)} />
     <AdminDialog open={adminOpen} onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} />
     {toast && <div className={`toast ${toast.type}`} role="status"><span>{toast.message}</span><button type="button" onClick={() => setToast(null)} aria-label="알림 닫기"><X size={15} /></button></div>}
   </main>;

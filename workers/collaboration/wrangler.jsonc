@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "our-ai-hangeul-collaboration",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "observability": { "enabled": true },
+  "vars": {
+    "APP_ORIGIN": "https://our-ai-hangeul.hhongcjun.chatgpt.site",
+    "SITE_SYNC_ORIGIN": "https://our-ai-hangeul.hhongcjun.chatgpt.site"
+  },
+  "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "our-ai-hangeul-assets" }],
+  "durable_objects": { "bindings": [{ "name": "COLLAB_ROOM", "class_name": "CollaborationRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CollaborationRoom"] }]
+}

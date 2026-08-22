@@ -67,6 +67,10 @@ export async function deleteDocument(id: string) {
 
 export async function storeAsset(file: Blob, name: string, mediaType = file.type || 'application/octet-stream') {
   const id = crypto.randomUUID();
+  return storeAssetWithId(id, file, name, mediaType);
+}
+
+export async function storeAssetWithId(id: string, file: Blob, name: string, mediaType = file.type || 'application/octet-stream') {
   const record: AssetRecord = { id, blob: file, name, mediaType, size: file.size, createdAt: new Date().toISOString() };
   await (await database()).put('assets', record);
   return record;

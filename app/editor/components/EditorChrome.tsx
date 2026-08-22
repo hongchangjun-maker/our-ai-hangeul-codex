@@ -41,6 +41,7 @@ import {
 import { useState } from 'react';
 import { DOCUMENT_STYLE_PRESETS, PAGE_PRESET_LABELS, type DocumentObject, type DocumentStyleId, type PagePreset } from '../../domain/document';
 import { DEFAULT_FAVORITE_FONT_FAMILIES, DEFAULT_FONT_FAMILY, ENGLISH_FONTS, KOREAN_FONTS, fontLabel, isBundledFont } from '../font-catalog';
+import { WindowModeControls } from './WindowModeControls';
 
 function ToolButton({ label, children, onClick, active, disabled }: { label: string; children: React.ReactNode; onClick?: () => void; active?: boolean; disabled?: boolean }) {
   return <button className={active ? 'tool-button active' : 'tool-button'} type="button" onClick={onClick} disabled={disabled} aria-label={label} title={label}>{children}</button>;
@@ -211,6 +212,7 @@ export function EditorChrome({
       <button className="compact-brand" type="button" onClick={onNewDocument} aria-label="우리의 AI 한글 홈"><span>우</span><strong>우리의 AI 한글</strong></button>
       <input className="document-name" value={documentName} maxLength={80} onChange={(event) => onDocumentName(event.target.value)} aria-label="문서 이름" />
       <div className="top-actions">
+        <WindowModeControls compact />
         <button className="save-state" type="button" onClick={onSave}><Save size={14} /> {saveLabel}</button>
         <ToolButton label="실행 취소" onClick={onUndo}><Undo2 size={18} /></ToolButton>
         <ToolButton label="다시 실행" onClick={onRedo}><Redo2 size={18} /></ToolButton>

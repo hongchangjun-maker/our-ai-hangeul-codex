@@ -6,5 +6,6 @@ declare namespace Cloudflare {
     SETTINGS_ENCRYPTION_KEY?: string;
     OPENAI_API_KEY?: string;
     APP_ENV?: string;
+    COLLAB_WORKER_URL?: string;
   }
 }

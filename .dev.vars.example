@@ -3,3 +3,4 @@ SESSION_SECRET=generate-at-least-32-random-bytes
 SETTINGS_ENCRYPTION_KEY=generate-exactly-32-random-bytes-as-base64url
 OPENAI_API_KEY=optional-server-side-key
 APP_ENV=development
+COLLAB_WORKER_URL=https://our-ai-hangeul-collaboration.example.workers.dev

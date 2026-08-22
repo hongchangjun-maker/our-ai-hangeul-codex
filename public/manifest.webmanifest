@@ -1,0 +1,11 @@
+{
+  "name": "우리의 AI 한글",
+  "short_name": "AI 한글",
+  "description": "쉬운 한국형 AI 웹 워드프로세서",
+  "start_url": "/?source=pwa",
+  "display": "standalone",
+  "background_color": "#e6ebe8",
+  "theme_color": "#183c49",
+  "orientation": "any",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
