@@ -345,7 +345,7 @@ export function EditorApp() {
   </>;
 
   return <main className="editor-shell">
-    <RealtimeCollaboration key={store.document.id} editor={editor} document={store.document} currentPage={currentPage} onRemotePage={(pageId, page) => store.updateDocument((document) => ({ ...document, pages: document.pages.map((value) => value.id === pageId ? page : value) }), false)} />
+    <RealtimeCollaboration key={`realtime-${store.document.id}`} editor={editor} document={store.document} currentPage={currentPage} onRemotePage={(pageId, page) => store.updateDocument((document) => ({ ...document, pages: document.pages.map((value) => value.id === pageId ? page : value) }), false)} />
     <EditorChrome
       editor={editor}
       documentName={store.document.name}
@@ -419,7 +419,7 @@ export function EditorApp() {
     <FontLibraryDialog open={fontLibraryOpen} favoriteFonts={favoriteFonts} onClose={() => setFontLibraryOpen(false)} onToggleFavorite={toggleFavoriteFont} onApply={applyFontFromLibrary} />
     <PageSetupDialog open={pageSetupOpen} document={store.document} currentPage={currentPage} onChange={store.replaceDocument} onClose={() => setPageSetupOpen(false)} />
     <ReviewDialog open={reviewOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setReviewOpen(false)} />
-    <CloudSyncDialog key={store.document.id} open={cloudOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setCloudOpen(false)} />
+    <CloudSyncDialog key={`cloud-${store.document.id}`} open={cloudOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setCloudOpen(false)} />
     <AdminDialog open={adminOpen} onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} />
     {toast && <div className={`toast ${toast.type}`} role="status"><span>{toast.message}</span><button type="button" onClick={() => setToast(null)} aria-label="알림 닫기"><X size={15} /></button></div>}
   </main>;
