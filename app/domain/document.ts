@@ -1,4 +1,4 @@
-export const DOCUMENT_FORMAT_VERSION = '1.2.0';
+export const DOCUMENT_FORMAT_VERSION = '1.3.0';
 
 export const PAGE_PRESETS = {
   A4: { widthMm: 210, heightMm: 297 },
@@ -108,6 +108,10 @@ export interface DocumentObject {
   size?: number;
   sourceWidthPx?: number;
   sourceHeightPx?: number;
+  /** Normalized source rectangle. The original asset is never rewritten. */
+  crop?: { x: number; y: number; width: number; height: number };
+  flipX?: boolean;
+  flipY?: boolean;
   text?: string;
   style?: {
     borderColor?: string;
@@ -252,7 +256,9 @@ function validateDocumentShape(value: EditorDocument) {
     if (!raw || !stringValue(raw.id) || typeof raw.preset !== 'string' || !(raw.preset in PAGE_PRESETS) || !['portrait', 'landscape'].includes(String(raw.orientation)) || !margins || !['top', 'right', 'bottom', 'left'].every((edge) => numberValue(margins[edge], 0, 500)) || !stringValue(raw.background, 128) || textFlow?.type !== 'doc' || (textFlow.content !== undefined && !Array.isArray(textFlow.content)) || !Array.isArray(raw.objects) || raw.objects.length > 2_000) throw new Error('문서 페이지 데이터가 올바르지 않습니다.');
     for (const object of raw.objects) {
       const item = record(object);
-      if (!item || !stringValue(item.id) || !['image', 'attachment', 'text-box', 'shape'].includes(String(item.type)) || !numberValue(item.x, -10_000, 100_000) || !numberValue(item.y, -10_000, 100_000) || !numberValue(item.width, 1, 100_000) || !numberValue(item.height, 1, 100_000) || !numberValue(item.rotation, -360_000, 360_000) || !numberValue(item.zIndex, -1_000_000, 1_000_000) || typeof item.locked !== 'boolean' || !numberValue(item.opacity, 0, 1) || (item.sourceWidthPx !== undefined && !numberValue(item.sourceWidthPx, 1, 100_000)) || (item.sourceHeightPx !== undefined && !numberValue(item.sourceHeightPx, 1, 100_000))) throw new Error('문서 개체 데이터가 올바르지 않습니다.');
+      const crop = item ? record(item.crop) : null;
+      const validCrop = !crop || (numberValue(crop.x, 0, 1) && numberValue(crop.y, 0, 1) && numberValue(crop.width, 0.001, 1) && numberValue(crop.height, 0.001, 1) && Number(crop.x) + Number(crop.width) <= 1.000001 && Number(crop.y) + Number(crop.height) <= 1.000001);
+      if (!item || !stringValue(item.id) || !['image', 'attachment', 'text-box', 'shape'].includes(String(item.type)) || !numberValue(item.x, -10_000, 100_000) || !numberValue(item.y, -10_000, 100_000) || !numberValue(item.width, 1, 100_000) || !numberValue(item.height, 1, 100_000) || !numberValue(item.rotation, -360_000, 360_000) || !numberValue(item.zIndex, -1_000_000, 1_000_000) || typeof item.locked !== 'boolean' || !numberValue(item.opacity, 0, 1) || (item.sourceWidthPx !== undefined && !numberValue(item.sourceWidthPx, 1, 100_000)) || (item.sourceHeightPx !== undefined && !numberValue(item.sourceHeightPx, 1, 100_000)) || !validCrop || (item.flipX !== undefined && typeof item.flipX !== 'boolean') || (item.flipY !== undefined && typeof item.flipY !== 'boolean')) throw new Error('문서 개체 데이터가 올바르지 않습니다.');
     }
   }
   if (!Array.isArray(value.fonts) || !value.fonts.every((font) => typeof font === 'string') || !Array.isArray(value.comments)) throw new Error('문서 부가 정보가 올바르지 않습니다.');
@@ -290,6 +296,9 @@ export function migrateDocument(input: unknown): EditorDocument {
       formatVersion: DOCUMENT_FORMAT_VERSION,
       settings: { ...candidate.settings!, pageNumber: { enabled: true, start: 1, position: 'footer-center', format: 'number' } },
     } as EditorDocument);
+  }
+  if (candidate.formatVersion === '1.2.0') {
+    return validateDocumentShape({ ...candidate, formatVersion: DOCUMENT_FORMAT_VERSION } as EditorDocument);
   }
   if (candidate.formatVersion !== DOCUMENT_FORMAT_VERSION) throw new Error(`지원하지 않는 문서 버전입니다: ${candidate.formatVersion ?? '알 수 없음'}`);
   return validateDocumentShape(candidate as EditorDocument);

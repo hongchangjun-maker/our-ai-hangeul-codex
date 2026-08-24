@@ -2,7 +2,7 @@
 
 import { Download, FileCode2, FileJson2, FileText, Printer, X } from 'lucide-react';
 
-type ExportType = 'pdf' | 'hwpx' | 'docx' | 'odt' | 'rtf' | 'markdown' | 'txt' | 'html' | 'source' | 'print';
+type ExportType = 'pdf' | 'png' | 'hwpx' | 'docx' | 'odt' | 'rtf' | 'markdown' | 'txt' | 'html' | 'source' | 'print';
 
 export function ExportDialog({ open, busy, message, fontFamilies, onClose, onExport }: { open: boolean; busy: boolean; message: string; fontFamilies: string[]; onClose: () => void; onExport: (type: ExportType) => void }) {
   if (!open) return null;
@@ -13,6 +13,7 @@ export function ExportDialog({ open, busy, message, fontFamilies, onClose, onExp
     { id: 'rtf', label: 'RTF 문서', detail: '폭넓게 열리는 서식 텍스트로 저장', icon: <FileText /> },
     { id: 'markdown', label: 'Markdown', detail: '제목·목록 중심의 범용 텍스트', icon: <FileCode2 /> },
     { id: 'pdf', label: 'PDF 문서', detail: '무손실 페이지 배치와 원본 사진을 보존', icon: <FileText /> },
+    { id: 'png', label: '300 DPI PNG', detail: '각 쪽을 무손실 PNG로 저장 (여러 쪽은 ZIP)', icon: <FileText /> },
     { id: 'txt', label: 'TXT 텍스트', detail: '본문 글자만 간단히 저장', icon: <FileText /> },
     { id: 'html', label: 'HTML 문서', detail: '브라우저에서 열 수 있는 문서', icon: <FileCode2 /> },
     { id: 'source', label: '우리의 AI 한글 원본', detail: '사진·첨부를 원본 바이트로 담는 OAH', icon: <FileJson2 /> },

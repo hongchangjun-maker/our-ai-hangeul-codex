@@ -1,9 +1,10 @@
-import type { EditorDocument, RichTextDocument } from '../domain/document';
+import type { DocumentObject, EditorDocument, RichTextDocument } from '../domain/document';
 import type { ParagraphChild, TextRun as DocxTextRun } from 'docx';
 import { pageGeometry } from '../domain/geometry';
 import { downloadBlob } from './download';
 import { buildHwpxBlob } from './hwpx-export';
 import { getAsset } from './local-storage';
+import { normalizedCrop } from '../domain/image-quality';
 
 function safeName(name: string) {
   return (name.trim() || '새 문서').replace(/[\\/:*?"<>|]/g, '_');
@@ -194,7 +195,7 @@ export async function buildDocxBlob(document: EditorDocument) {
       if (object.type === 'image' && object.assetId) {
         const asset = await getAsset(object.assetId);
         const imageType = asset?.mediaType === 'image/png' ? 'png' : asset?.mediaType === 'image/gif' ? 'gif' : asset?.mediaType === 'image/bmp' ? 'bmp' : asset?.mediaType === 'image/jpeg' ? 'jpg' : null;
-        if (asset && imageType) children.push(new Paragraph({ children: [new docx.ImageRun({ type: imageType, data: await asset.blob.arrayBuffer(), transformation: { width: Math.max(20, Math.round(object.width)), height: Math.max(20, Math.round(object.height)) }, altText: { title: object.name || '삽입 이미지', description: object.name || '삽입 이미지', name: object.name || 'image' } })] }));
+        if (asset && imageType) children.push(new Paragraph({ children: [new docx.ImageRun({ type: imageType, data: await asset.blob.arrayBuffer(), transformation: { width: Math.max(20, Math.round(object.width)), height: Math.max(20, Math.round(object.height)), flip: { horizontal: object.flipX, vertical: object.flipY }, rotation: object.rotation }, altText: { title: object.name || '삽입 이미지', description: object.name || '삽입 이미지', name: object.name || 'image' } })] }));
       } else if (object.type === 'text-box') {
         children.push(new docx.Table({ rows: [new docx.TableRow({ children: [new docx.TableCell({ shading: { fill: object.style?.background?.replace('#', '') || 'F7FAF9' }, children: [new Paragraph({ children: [new TextRun({ text: object.text || '', font: document.settings.defaultFont })] })] })] })], width: { size: Math.min(100, Math.max(15, Math.round((object.width / geometry.widthPx) * 100))), type: docx.WidthType.PERCENTAGE } }));
       }
@@ -237,6 +238,25 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char);
 }
 
+async function pdfImageData(blob: Blob, object: DocumentObject) {
+  const crop = normalizedCrop(object);
+  const directFormat = blob.type === 'image/png' ? 'PNG' : blob.type === 'image/jpeg' ? 'JPEG' : blob.type === 'image/webp' ? 'WEBP' : blob.type === 'image/gif' ? 'GIF' : null;
+  const transformed = Boolean(object.flipX || object.flipY || crop.x || crop.y || crop.width < 1 || crop.height < 1);
+  if (!transformed) return directFormat ? { bytes: new Uint8Array(await blob.arrayBuffer()), format: directFormat } : null;
+  if (typeof createImageBitmap !== 'function') return null;
+  const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+  try {
+    const sourceX = Math.round(bitmap.width * crop.x); const sourceY = Math.round(bitmap.height * crop.y);
+    const sourceWidth = Math.max(1, Math.round(bitmap.width * crop.width)); const sourceHeight = Math.max(1, Math.round(bitmap.height * crop.height));
+    const canvas = globalThis.document.createElement('canvas'); canvas.width = sourceWidth; canvas.height = sourceHeight;
+    const context = canvas.getContext('2d'); if (!context) return null;
+    context.save(); context.translate(object.flipX ? sourceWidth : 0, object.flipY ? sourceHeight : 0); context.scale(object.flipX ? -1 : 1, object.flipY ? -1 : 1);
+    context.drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight); context.restore();
+    const output = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png', 1));
+    return output ? { bytes: new Uint8Array(await output.arrayBuffer()), format: 'PNG' } : null;
+  } finally { bitmap.close(); }
+}
+
 export async function exportPdf(document: EditorDocument, pages: { page: HTMLElement; pageIndex: number }[], onProgress?: (message: string) => void) {
   if (!pages.length) throw new Error('내보낼 페이지를 찾지 못했습니다.');
   onProgress?.('PDF 페이지를 준비하는 중…');
@@ -270,14 +290,39 @@ export async function exportPdf(document: EditorDocument, pages: { page: HTMLEle
     const sourcePage = document.pages[pageInfos[index].pageIndex];
     for (const object of sourcePage.objects.filter((item) => item.type === 'image' && item.assetId).sort((leftObject, rightObject) => leftObject.zIndex - rightObject.zIndex)) {
       const asset = await getAsset(object.assetId!);
-      const format = asset?.mediaType === 'image/png' ? 'PNG' : asset?.mediaType === 'image/jpeg' ? 'JPEG' : asset?.mediaType === 'image/webp' ? 'WEBP' : asset?.mediaType === 'image/gif' ? 'GIF' : null;
-      if (!asset || !format) continue;
-      const bytes = new Uint8Array(await asset.blob.arrayBuffer());
-      pdf.addImage(bytes, format, object.x / geometry.widthPx * geometry.widthMm, object.y / geometry.heightPx * geometry.heightMm, object.width / geometry.widthPx * geometry.widthMm, object.height / geometry.heightPx * geometry.heightMm, undefined, 'NONE', object.rotation);
+      if (!asset) continue;
+      const imageData = await pdfImageData(asset.blob, object); if (!imageData) continue;
+      pdf.addImage(imageData.bytes, imageData.format, object.x / geometry.widthPx * geometry.widthMm, object.y / geometry.heightPx * geometry.heightMm, object.width / geometry.widthPx * geometry.widthMm, object.height / geometry.heightPx * geometry.heightMm, undefined, 'NONE', object.rotation);
     }
   }
   pdf.save(`${safeName(document.name)}.pdf`);
   onProgress?.('PDF 저장이 완료되었습니다.');
+}
+
+export async function exportPng(document: EditorDocument, pages: { page: HTMLElement; pageIndex: number }[], onProgress?: (message: string) => void) {
+  if (!pages.length) throw new Error('내보낼 페이지를 찾지 못했습니다.');
+  const [{ default: html2canvas }, { default: JSZip }] = await Promise.all([import('html2canvas'), import('jszip')]);
+  const zip = new JSZip();
+  for (let index = 0; index < pages.length; index += 1) {
+    const { page, pageIndex } = pages[index]; const sourcePage = document.pages[pageIndex]; const geometry = pageGeometry(sourcePage);
+    onProgress?.(`${index + 1}/${pages.length}쪽을 300 DPI PNG로 만드는 중…`);
+    const canvas = await html2canvas(page, { scale: 300 / 96, useCORS: true, backgroundColor: '#ffffff', logging: false, ignoreElements: (element) => element instanceof HTMLElement && element.dataset.pdfNative === 'true' });
+    const context = canvas.getContext('2d'); const scaleX = canvas.width / geometry.widthPx; const scaleY = canvas.height / geometry.heightPx;
+    if (context && typeof createImageBitmap === 'function') for (const object of sourcePage.objects.filter((item) => item.type === 'image' && item.assetId).sort((a, b) => a.zIndex - b.zIndex)) {
+      const asset = await getAsset(object.assetId!); if (!asset) continue;
+      const bitmap = await createImageBitmap(asset.blob, { imageOrientation: 'from-image' });
+      try {
+        const crop = normalizedCrop(object); const sx = bitmap.width * crop.x; const sy = bitmap.height * crop.y; const sw = bitmap.width * crop.width; const sh = bitmap.height * crop.height;
+        const width = object.width * scaleX; const height = object.height * scaleY; const centerX = (object.x + object.width / 2) * scaleX; const centerY = (object.y + object.height / 2) * scaleY;
+        context.save(); context.translate(centerX, centerY); context.rotate(object.rotation * Math.PI / 180); context.scale(object.flipX ? -1 : 1, object.flipY ? -1 : 1); context.drawImage(bitmap, sx, sy, sw, sh, -width / 2, -height / 2, width, height); context.restore();
+      } finally { bitmap.close(); }
+    }
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png', 1)); if (!blob) throw new Error('PNG 이미지를 만들지 못했습니다.');
+    if (pages.length === 1) { downloadBlob(blob, `${safeName(document.name)}.png`); onProgress?.('300 DPI PNG 저장이 완료되었습니다.'); return; }
+    zip.file(`${String(index + 1).padStart(3, '0')}쪽.png`, blob, { compression: 'STORE' });
+  }
+  downloadBlob(await zip.generateAsync({ type: 'blob', compression: 'STORE' }), `${safeName(document.name)}-PNG.zip`);
+  onProgress?.('모든 페이지의 300 DPI PNG 저장이 완료되었습니다.');
 }
 
 export function richTextToPlainText(value: RichTextDocument) {

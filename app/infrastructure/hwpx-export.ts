@@ -76,6 +76,6 @@ export async function buildHwpxBlob(document: EditorDocument) {
   zip.file('Contents/our-ai-document.json', JSON.stringify({ format: 'our-ai-hangeul-objects-v1', settings: document.settings.pageNumber, pages: document.pages.map((page) => ({ header: page.header, footer: page.footer, objects: page.objects })) }));
   assets.forEach((asset) => zip.file(`BinData/${asset.id}`, asset.blob, { compression: 'STORE' }));
   zip.file('Preview/PrvText.txt', document.pages.flatMap((page) => blocks(page).map((block) => block.text)).join('\n'));
-  zip.file('version.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/app" targetApplication="WORDPROC" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.4" application="우리의 AI 한글" appVersion="1.2.0"/>');
+  zip.file('version.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/app" targetApplication="WORDPROC" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.4" application="우리의 AI 한글" appVersion="1.3.0"/>');
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
 }

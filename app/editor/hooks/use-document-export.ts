@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import type { EditorDocument } from '../../domain/document';
-import { exportDocx, exportHtml, exportHwpx, exportMarkdown, exportOdt, exportPdf, exportRtf, exportSource, exportText } from '../../infrastructure/export-service';
+import { exportDocx, exportHtml, exportHwpx, exportMarkdown, exportOdt, exportPdf, exportPng, exportRtf, exportSource, exportText } from '../../infrastructure/export-service';
 
-export type ExportType = 'pdf' | 'hwpx' | 'docx' | 'odt' | 'rtf' | 'markdown' | 'txt' | 'html' | 'source' | 'print';
+export type ExportType = 'pdf' | 'png' | 'hwpx' | 'docx' | 'odt' | 'rtf' | 'markdown' | 'txt' | 'html' | 'source' | 'print';
 
 async function withCleanOutput<T>(task: () => Promise<T>) {
   const root = globalThis.document.documentElement;
@@ -12,6 +12,13 @@ async function withCleanOutput<T>(task: () => Promise<T>) {
   await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   try { return await task(); }
   finally { root.classList.remove('document-output-mode'); }
+}
+
+export async function printWithOriginalImages() {
+  dispatchEvent(new CustomEvent('our-ai-hangeul:image-output-mode', { detail: { original: true } }));
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  globalThis.print();
+  setTimeout(() => dispatchEvent(new CustomEvent('our-ai-hangeul:image-output-mode', { detail: { original: false } })), 500);
 }
 
 export function useDocumentExport(document: EditorDocument) {
@@ -26,7 +33,7 @@ export function useDocumentExport(document: EditorDocument) {
       else if (type === 'markdown') exportMarkdown(document);
       else if (type === 'rtf') exportRtf(document);
       else if (type === 'html') { const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page .page-margin')).map((element) => element.innerHTML); exportHtml(document, pages); }
-      else if (type === 'print') globalThis.print();
+      else if (type === 'print') await printWithOriginalImages();
       else if (type === 'docx' || type === 'hwpx' || type === 'odt') {
         setBusy(true);
         setMessage(`${type.toUpperCase()} 문서를 준비하는 중…`);
@@ -41,7 +48,7 @@ export function useDocumentExport(document: EditorDocument) {
         const transforms = pages.map((entry) => entry.page.style.transform);
         await withCleanOutput(async () => {
           pages.forEach(({ page }) => { page.style.transform = 'none'; });
-          try { await exportPdf(document, pages, setMessage); }
+          try { if (type === 'png') await exportPng(document, pages, setMessage); else await exportPdf(document, pages, setMessage); }
           finally { pages.forEach((entry, index) => { entry.page.style.transform = transforms[index]; }); }
         });
       }

@@ -1,7 +1,8 @@
 import { migrateDocument, type EditorDocument, type DocumentObject } from '../domain/document';
 import { storeAsset, storeAssetWithId } from './local-storage';
 import { WORD_IMPORT_EXTENSIONS, importWordDocument } from './word-formats';
-import { fittedImageSize, imagePixelSize } from './image-metadata';
+import { assertImageSignature, fittedImageSize, imagePixelSize } from './image-metadata';
+import { queueImageVariants } from './image-proxy';
 
 export const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']);
 export const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
@@ -78,9 +79,12 @@ export async function importFile(file: File, position = { x: 90, y: 120 }): Prom
   if (IMAGE_TYPES.has(file.type) || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'].includes(extension)) {
     if (file.size > MAX_IMAGE_BYTES) throw new Error('이미지는 30MB 이하만 삽입할 수 있습니다.');
     const blob = extension === 'svg' || file.type === 'image/svg+xml' ? await sanitizedSvg(file) : file;
+    const mediaType = imageMediaType(extension, blob.type);
+    await assertImageSignature(blob, mediaType);
     const source = await imagePixelSize(blob);
     const display = fittedImageSize(source);
-    const asset = await storeAsset(blob, file.name, imageMediaType(extension, blob.type));
+    const asset = await storeAsset(blob, file.name, mediaType, source);
+    void queueImageVariants(asset.id, asset.blob, source);
     return {
       kind: 'image',
       object: { id: crypto.randomUUID(), type: 'image', x: position.x, y: position.y, width: display.width, height: display.height, rotation: 0, zIndex: 10, locked: false, opacity: 1, assetId: asset.id, name: file.name, mediaType: asset.mediaType, size: asset.size, sourceWidthPx: source.width, sourceHeightPx: source.height, style: { borderRadius: 4, shadow: true } },

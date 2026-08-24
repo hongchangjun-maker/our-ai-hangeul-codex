@@ -1,14 +1,12 @@
 'use client';
 
-/* eslint-disable @next/next/no-img-element -- user-owned local Blob URLs cannot use the Next image optimizer */
-
 import type { Editor } from '@tiptap/react';
 import { EditorContent } from '@tiptap/react';
 import { FileText, Minus, Plus } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DocumentObject, DocumentPage, EditorDocument, PageMargins } from '../../domain/document';
 import { clamp, mmToPx, pageGeometry, pxToMm } from '../../domain/geometry';
-import { getAsset } from '../../infrastructure/local-storage';
+import { ImageAssetView } from './ImageAssetView';
 import { ObjectLayer } from './ObjectLayer';
 import { ObjectInspector } from './ObjectInspector';
 
@@ -83,15 +81,9 @@ export function ReadOnlyRichText({ page }: { page: DocumentPage }) {
   return <div className="document-editor read-only">{page.textFlow.content?.map((node, index) => <RichNode key={index} nodeKey={index} node={node} />)}</div>;
 }
 
-function ReadOnlyObject({ object }: { object: DocumentObject }) {
-  const [url, setUrl] = useState<string>();
-  useEffect(() => {
-    let active = true; let objectUrl: string | undefined;
-    if (object.assetId) getAsset(object.assetId).then((asset) => { if (!asset || !active) return; objectUrl = URL.createObjectURL(asset.blob); setUrl(objectUrl); });
-    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [object.assetId]);
+function ReadOnlyObject({ object, displayScale }: { object: DocumentObject; displayScale: number }) {
   let content: React.ReactNode;
-  if (object.type === 'image') content = url ? <img src={url} alt={object.name || '삽입 이미지'} /> : <span className="asset-loading">이미지 준비 중…</span>;
+  if (object.type === 'image') content = <ImageAssetView object={object} displayScale={displayScale} lazy />;
   else if (object.type === 'attachment') content = <div className="attachment-card"><span><FileText size={22} /></span><span><strong>{object.name || '첨부 파일'}</strong><small>문서 첨부</small></span></div>;
   else if (object.type === 'text-box') content = <div className="free-text-box" style={{ background: object.style?.background }}>{object.text || '텍스트 상자'}</div>;
   else content = <div className="free-shape" style={{ background: object.style?.background, borderColor: object.style?.borderColor, borderWidth: object.style?.borderWidth, borderRadius: object.style?.borderRadius }} />;
@@ -216,7 +208,7 @@ export function PageCanvas({
   };
 
   return <>
-    {pageNavOpen && <aside className="page-nav" aria-label="페이지 탐색 및 선택 속성"><div className="panel-title"><strong>페이지</strong><button type="button" onClick={onAddPage} aria-label="페이지 추가"><Plus size={15} /></button></div><div className="page-thumb-list">{document.pages.map((page, index) => <button className={index === currentPage ? 'page-thumb selected' : 'page-thumb'} type="button" key={page.id} onClick={() => onCurrentPage(index)}><span className="thumb-paper"><i /><i /><i /></span><small>{index + 1}</small></button>)}</div>{selectedObject && <ObjectInspector object={selectedObject} pageWidth={pageGeometry(document.pages[currentPage]).widthPx} pageHeight={pageGeometry(document.pages[currentPage]).heightPx} onChange={(patch) => onObjectChange(selectedObject.id, patch, true)} onAction={onObjectAction} />}</aside>}
+    {pageNavOpen && <aside className="page-nav" aria-label="페이지 탐색 및 선택 속성"><div className="panel-title"><strong>페이지</strong><button type="button" onClick={onAddPage} aria-label="페이지 추가"><Plus size={15} /></button></div><div className="page-thumb-list">{document.pages.map((page, index) => <button className={index === currentPage ? 'page-thumb selected' : 'page-thumb'} type="button" key={page.id} onClick={() => onCurrentPage(index)}><span className="thumb-paper"><i /><i /><i /></span><small>{index + 1}</small></button>)}</div>{selectedObject && <ObjectInspector object={selectedObject} page={document.pages[currentPage]} pageWidth={pageGeometry(document.pages[currentPage]).widthPx} pageHeight={pageGeometry(document.pages[currentPage]).heightPx} onChange={(patch) => onObjectChange(selectedObject.id, patch, true)} onAction={onObjectAction} />}</aside>}
     <div className={fileDragActive ? 'canvas-area file-drag-active' : 'canvas-area'} ref={canvasRef} onDragOver={(event) => { event.preventDefault(); setFileDragActive(true); }} onDragLeave={(event) => { if (event.currentTarget === event.target) setFileDragActive(false); }} onDrop={() => setFileDragActive(false)}>
       <div className="canvas-tools"><span>{document.pages[currentPage].preset} · {document.pages[currentPage].orientation === 'portrait' ? '세로' : '가로'}</span><span className="canvas-zoom"><button type="button" aria-label="축소" onClick={() => onZoom(Math.max(50, zoom - 25))}><Minus size={14} /></button><b>{visibleScale < scale ? `맞춤 ${Math.round(visibleScale * 100)}%` : `${zoom}%`}</b><button type="button" aria-label="확대" onClick={() => onZoom(Math.min(150, zoom + 25))}><Plus size={14} /></button></span></div>
       {fileDragActive && <div className="canvas-drop-hint" role="status">파일을 놓으면 현재 쪽에 가져옵니다</div>}
@@ -245,7 +237,7 @@ export function PageCanvas({
             </div>
               {(page.header || (document.settings.pageNumber.enabled && document.settings.pageNumber.position === 'header-right')) && <div className="page-header" style={{ top: Math.max(7, mmToPx(page.margins.top) / 2), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }}><span>{page.header}</span>{document.settings.pageNumber.enabled && document.settings.pageNumber.position === 'header-right' && <b>{pageNumberText(index)}</b>}</div>}
               {(page.footer || (document.settings.pageNumber.enabled && document.settings.pageNumber.position.startsWith('footer'))) && <div className={`page-footer ${document.settings.pageNumber.position}`} style={{ bottom: Math.max(7, mmToPx(page.margins.bottom) / 2), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }}><span>{page.footer}</span>{document.settings.pageNumber.enabled && document.settings.pageNumber.position.startsWith('footer') && <b>{pageNumberText(index)}</b>}</div>}
-              {index === currentPage ? <ObjectLayer objects={page.objects} pageWidth={geometry.widthPx} pageHeight={geometry.heightPx} displayScale={pageScale} selectedId={selectedObjectId} snapEnabled={document.settings.snapEnabled} guidesEnabled={document.settings.guidesEnabled} onSelect={onSelectObject} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} onChange={onObjectChange} onAction={onObjectAction} /> : <div className="object-layer read-only-layer">{page.objects.map((object) => <ReadOnlyObject key={object.id} object={object} />)}</div>}
+              {index === currentPage ? <ObjectLayer objects={page.objects} pageWidth={geometry.widthPx} pageHeight={geometry.heightPx} displayScale={pageScale} selectedId={selectedObjectId} snapEnabled={document.settings.snapEnabled} guidesEnabled={document.settings.guidesEnabled} onSelect={onSelectObject} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} onChange={onObjectChange} onAction={onObjectAction} /> : <div className="object-layer read-only-layer">{page.objects.map((object) => <ReadOnlyObject key={object.id} object={object} displayScale={pageScale} />)}</div>}
             </article>
           </div>;
         })}

@@ -66,8 +66,22 @@ export async function imagePixelSize(blob: Blob): Promise<ImagePixelSize> {
     const parsed = svgSize(await blob.text());
     if (parsed) return parsed;
   }
+  const decoded = await browserDecodedSize(blob);
+  if (decoded) return decoded;
   const bytes = new Uint8Array(await blob.arrayBuffer());
-  return rasterSize(bytes) ?? await browserDecodedSize(blob) ?? { width: 260, height: 180 };
+  return rasterSize(bytes) ?? { width: 260, height: 180 };
+}
+
+export async function assertImageSignature(blob: Blob, mediaType: string) {
+  if (mediaType === 'image/svg+xml') return;
+  const bytes = new Uint8Array(await blob.slice(0, 32).arrayBuffer());
+  const ascii = (start: number, length: number) => String.fromCharCode(...bytes.slice(start, start + length));
+  const valid = mediaType === 'image/png' ? bytes[0] === 0x89 && ascii(1, 3) === 'PNG'
+    : mediaType === 'image/jpeg' ? bytes[0] === 0xff && bytes[1] === 0xd8
+      : mediaType === 'image/gif' ? ascii(0, 3) === 'GIF'
+        : mediaType === 'image/webp' ? ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP'
+          : false;
+  if (!valid) throw new Error('파일 확장자와 실제 이미지 형식이 일치하지 않습니다.');
 }
 
 export function fittedImageSize(source: ImagePixelSize, maxWidth = 520, maxHeight = 700): ImagePixelSize {

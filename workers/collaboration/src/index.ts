@@ -16,6 +16,10 @@ const encoder = new TextEncoder();
 const ASSET_ID = /^[A-Za-z0-9_-]{8,128}$/;
 const TOKEN = /^[A-Za-z0-9_-]{32,128}$/;
 const MAX_ASSET_BYTES = 50 * 1024 * 1024;
+const MAX_PROXY_BYTES = 12 * 1024 * 1024;
+const IMAGE_VARIANT = /^(original|thumbnail|preview|high)$/;
+const IMAGE_TYPE = /^image\/(?:jpeg|png|webp|gif|svg\+xml)$/i;
+const SHA256 = /^[a-f0-9]{64}$/;
 
 function base64Url(bytes: Uint8Array) {
   let value = ''; for (const byte of bytes) value += String.fromCharCode(byte);
@@ -36,7 +40,7 @@ function allowedOrigin(request: Request, env: Env) {
 
 function headers(origin: string | null) {
   const value = new Headers({ 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
-  if (origin) { value.set('access-control-allow-origin', origin); value.set('vary', 'Origin'); }
+  if (origin) { value.set('access-control-allow-origin', origin); value.set('access-control-expose-headers', 'content-type, content-length, etag, x-file-name, x-image-sha256, x-image-width, x-image-height, x-image-variant'); value.set('vary', 'Origin'); }
   return value;
 }
 
@@ -73,13 +77,52 @@ async function assetRequest(request: Request, env: Env, origin: string | null, a
   return new Response(request.method === 'HEAD' ? null : (object as R2ObjectBody).body, { status: 200, headers: resultHeaders });
 }
 
+async function imageAssetRequest(request: Request, env: Env, origin: string | null, assetId: string, variant: string) {
+  if (!ASSET_ID.test(assetId) || !IMAGE_VARIANT.test(variant)) return json({ message: '이미지 자산 경로가 올바르지 않습니다.' }, 400, origin);
+  const auth = await authorize(request, env); if (!auth) return json({ message: '공유 코드를 확인해 주세요.' }, 403, origin);
+  const key = `${auth.hash}/images/${assetId}/${variant}`;
+  if (request.method === 'DELETE') {
+    await env.ASSETS.delete(['original', 'thumbnail', 'preview', 'high'].map((name) => `${auth.hash}/images/${assetId}/${name}`));
+    return new Response(null, { status: 204, headers: headers(origin) });
+  }
+  if (request.method === 'PUT') {
+    const length = Number(request.headers.get('content-length') || 0);
+    const limit = variant === 'original' ? MAX_ASSET_BYTES : MAX_PROXY_BYTES;
+    const mediaType = (request.headers.get('content-type') || '').toLowerCase().slice(0, 160);
+    const sha256 = (request.headers.get('x-content-sha256') || '').toLowerCase();
+    if (!Number.isFinite(length) || length <= 0 || length > limit) return json({ message: `이미지 ${variant === 'original' ? '원본은 50MB' : '미리보기는 12MB'} 이하만 동기화할 수 있습니다.` }, 413, origin);
+    if (!IMAGE_TYPE.test(mediaType)) return json({ message: '허용되지 않은 이미지 형식입니다.' }, 415, origin);
+    if (sha256 && !SHA256.test(sha256)) return json({ message: '이미지 체크섬이 올바르지 않습니다.' }, 400, origin);
+    if (!request.body) return json({ message: '이미지 본문이 없습니다.' }, 400, origin);
+    const filename = decodeURIComponent(request.headers.get('x-file-name') || 'image').slice(0, 240);
+    const width = (request.headers.get('x-image-width') || '').slice(0, 12);
+    const height = (request.headers.get('x-image-height') || '').slice(0, 12);
+    await env.ASSETS.put(key, request.body, { httpMetadata: { contentType: mediaType }, customMetadata: { filename, sha256, width, height, variant } });
+    return json({ assetId, variant, size: length }, 201, origin);
+  }
+  let object = request.method === 'HEAD' ? await env.ASSETS.head(key) : await env.ASSETS.get(key);
+  if (!object && variant === 'original') {
+    const legacyKey = `${auth.hash}/${assetId}`;
+    object = request.method === 'HEAD' ? await env.ASSETS.head(legacyKey) : await env.ASSETS.get(legacyKey);
+  }
+  if (!object) return json({ message: '이미지 자산을 찾지 못했습니다.' }, 404, origin);
+  const resultHeaders = headers(origin); object.writeHttpMetadata(resultHeaders); resultHeaders.set('etag', object.httpEtag); resultHeaders.set('content-length', String(object.size)); resultHeaders.set('x-file-name', encodeURIComponent(object.customMetadata?.filename || 'image'));
+  for (const name of ['sha256', 'width', 'height', 'variant']) if (object.customMetadata?.[name]) resultHeaders.set(`x-image-${name}`, object.customMetadata[name]);
+  return new Response(request.method === 'HEAD' ? null : (object as R2ObjectBody).body, { status: 200, headers: resultHeaders });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url); const origin = allowedOrigin(request, env);
     if (origin === false) return json({ message: '허용되지 않은 출처입니다.' }, 403, null);
-    if (request.method === 'OPTIONS') { const result = headers(origin); result.set('access-control-allow-methods', 'GET, HEAD, PUT, DELETE, OPTIONS'); result.set('access-control-allow-headers', 'content-type, x-file-name'); return new Response(null, { status: 204, headers: result }); }
+    if (request.method === 'OPTIONS') { const result = headers(origin); result.set('access-control-allow-methods', 'GET, HEAD, PUT, DELETE, OPTIONS'); result.set('access-control-allow-headers', 'content-type, x-file-name, x-content-sha256, x-image-width, x-image-height'); result.set('access-control-expose-headers', 'content-type, content-length, etag, x-file-name, x-image-sha256, x-image-width, x-image-height, x-image-variant'); return new Response(null, { status: 204, headers: result }); }
     if (url.pathname === '/health') return json({ ok: true, storage: 'r2', realtime: 'durable-object-websocket' }, 200, origin);
     if (url.pathname.startsWith('/assets/') && ['GET', 'HEAD', 'PUT', 'DELETE'].includes(request.method)) return assetRequest(request, env, origin, decodeURIComponent(url.pathname.slice(8)));
+    if (url.pathname.startsWith('/image-assets/') && ['GET', 'HEAD', 'PUT', 'DELETE'].includes(request.method)) {
+      const [assetId, variant, ...rest] = url.pathname.slice('/image-assets/'.length).split('/').map(decodeURIComponent);
+      if (rest.length) return json({ message: '경로를 찾지 못했습니다.' }, 404, origin);
+      return imageAssetRequest(request, env, origin, assetId || '', variant || '');
+    }
     if (url.pathname === '/ws' && request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const auth = await authorize(request, env); if (!auth) return json({ message: '공유 코드를 확인해 주세요.' }, 403, origin);
       const clientId = url.searchParams.get('clientId')?.slice(0, 80) || crypto.randomUUID(); const name = url.searchParams.get('name')?.slice(0, 40) || '공동 편집자';

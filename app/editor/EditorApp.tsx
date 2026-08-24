@@ -1,5 +1,4 @@
 'use client';
-
 import Color from '@tiptap/extension-color';
 import FontFamily from '@tiptap/extension-font-family';
 import Highlight from '@tiptap/extension-highlight';
@@ -31,16 +30,16 @@ import { RealtimeCollaboration } from './components/RealtimeCollaboration';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { FontSize, LineHeight } from './extensions/formatting';
 import { useFontPreferences } from './hooks/use-font-preferences';
-import { useDocumentExport } from './hooks/use-document-export';
+import { printWithOriginalImages, useDocumentExport } from './hooks/use-document-export';
 import { useDocumentState } from './hooks/use-document';
 import { useAppDefaults } from './hooks/use-app-defaults'; import { useShareLinkLaunch } from './hooks/use-share-link-launch';
 import { useViewportZoom } from './hooks/use-viewport-zoom';
+import { useClipboardImages } from './hooks/use-clipboard-images';
 import { rowsToTable } from './table-utils';
 function paragraphsFromText(text: string): RichTextDocument {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   return { type: 'doc', content: lines.map((line) => line ? { type: 'paragraph', content: [{ type: 'text', text: line }] } : { type: 'paragraph' }) };
 }
-
 export function EditorApp() {
   const store = useDocumentState();
   const { defaults: appDefaults, refresh: refreshAppDefaults } = useAppDefaults();
@@ -195,6 +194,7 @@ export function EditorApp() {
       } catch (reason) { setToast({ type: 'error', message: `${array[index].name}: ${reason instanceof Error ? reason.message : '가져오기에 실패했습니다.'}` }); }
     }
   };
+  useClipboardImages((files) => void handleFiles(files));
 
   const objectAction = (action: 'front' | 'back' | 'lock' | 'duplicate' | 'delete' | 'center-x' | 'center-y') => {
     if (!selectedObjectId) return;
@@ -304,7 +304,7 @@ export function EditorApp() {
       if (modifier && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); }
       if (modifier && event.shiftKey && event.key.toLowerCase() === 'z') { event.preventDefault(); redo(); }
       if (modifier && event.key.toLowerCase() === 'n') { event.preventDefault(); createNew(); }
-      if (modifier && event.key.toLowerCase() === 'p') { event.preventDefault(); globalThis.print(); }
+      if (modifier && event.key.toLowerCase() === 'p') { event.preventDefault(); void printWithOriginalImages(); }
       if (modifier && event.altKey && event.key.toLowerCase() === 'g') { event.preventDefault(); setShowPageGuides((value) => !value); }
       if (selectedObjectId && !typing && (event.key === 'Delete' || event.key === 'Backspace')) { event.preventDefault(); objectAction('delete'); }
       if (selectedObjectId && !typing && modifier && event.key.toLowerCase() === 'c') { const object = store.document.pages[currentPageRef.current].objects.find((item) => item.id === selectedObjectId); if (object) objectClipboard.current = structuredClone(object); }
@@ -369,7 +369,7 @@ export function EditorApp() {
       onDuplicatePage={duplicateCurrentPage}
       onDeletePage={deleteCurrentPage}
       onExport={() => { setExportOpen(true); clearExportMessage(); }}
-      onPrint={() => globalThis.print()}
+      onPrint={() => void printWithOriginalImages()}
       onAdmin={() => setAdminOpen(true)}
       onPageSetup={() => setPageSetupOpen(true)}
       onReview={() => setReviewOpen(true)}

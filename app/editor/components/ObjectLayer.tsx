@@ -1,30 +1,12 @@
 'use client';
 
-/* eslint-disable @next/next/no-img-element -- user-owned local Blob URLs cannot use the Next image optimizer */
-
 import { Copy, Download, FileText, Grip, Layers, Lock, LockOpen, RotateCw, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { DocumentObject } from '../../domain/document';
 import { clamp, snapCoordinate } from '../../domain/geometry';
 import { downloadBlob } from '../../infrastructure/download';
 import { getAsset } from '../../infrastructure/local-storage';
-
-function useAssetUrl(assetId?: string) {
-  const [url, setUrl] = useState<string>();
-  useEffect(() => {
-    let active = true;
-    let objectUrl: string | undefined;
-    if (assetId) {
-      getAsset(assetId).then((asset) => {
-        if (!asset || !active) return;
-        objectUrl = URL.createObjectURL(asset.blob);
-        setUrl(objectUrl);
-      });
-    }
-    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [assetId]);
-  return url;
-}
+import { ImageAssetView } from './ImageAssetView';
 
 function formatBytes(size = 0) {
   if (size < 1024) return `${size} B`;
@@ -32,9 +14,8 @@ function formatBytes(size = 0) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function ObjectContent({ object }: { object: DocumentObject }) {
-  const url = useAssetUrl(object.assetId);
-  if (object.type === 'image') return url ? <img src={url} alt={object.name || '삽입 이미지'} draggable={false} /> : <span className="asset-loading">이미지 준비 중…</span>;
+function ObjectContent({ object, displayScale }: { object: DocumentObject; displayScale: number }) {
+  if (object.type === 'image') return <ImageAssetView object={object} displayScale={displayScale} />;
   if (object.type === 'attachment') {
     const download = async () => {
       if (!object.assetId) return;
@@ -203,7 +184,7 @@ export function ObjectLayer({
               setContextMenu({ id: object.id, x: (event.clientX - rect.left) * pageWidth / rect.width, y: (event.clientY - rect.top) * pageHeight / rect.height });
             }}
           >
-            <ObjectContent object={object} />
+            <ObjectContent object={object} displayScale={displayScale} />
             {selected && !object.locked && <>
               <button className="object-handle rotate" type="button" aria-label="개체 회전" onPointerDown={(event) => beginRotate(event, object.id)}><RotateCw size={12} /></button>
               <button className="object-handle resize" type="button" aria-label="개체 크기 변경" onPointerDown={(event) => beginResize(event, object.id)}><Grip size={12} /></button>
