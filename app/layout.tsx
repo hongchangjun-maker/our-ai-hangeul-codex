@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: '우리의 AI 한글',
   description: '사진은 글을 밀지 않고, AI는 선택한 순간에만 돕는 쉬운 한국형 웹 워드프로세서',
   manifest: '/manifest.webmanifest',
+  icons: { icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }] },
   applicationName: '우리의 AI 한글',
   appleWebApp: { capable: true, title: '우리의 AI 한글', statusBarStyle: 'black-translucent' },
   openGraph: {
