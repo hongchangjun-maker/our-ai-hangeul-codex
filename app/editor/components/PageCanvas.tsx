@@ -2,10 +2,11 @@
 
 import type { Editor } from '@tiptap/react';
 import { EditorContent } from '@tiptap/react';
-import { FileText, Minus, Plus } from 'lucide-react';
+import { Columns2, FileText, Minus, Plus, Rows3 } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DocumentObject, DocumentPage, EditorDocument, PageMargins } from '../../domain/document';
 import { clamp, mmToPx, pageGeometry, pxToMm } from '../../domain/geometry';
+import { pageViewRange, type PageViewMode } from '../page-view';
 import { ImageAssetView } from './ImageAssetView';
 import { ObjectLayer } from './ObjectLayer';
 import { ObjectInspector } from './ObjectInspector';
@@ -108,6 +109,8 @@ export function PageCanvas({
   onPageMarginsChange,
   showGuides,
   onZoom,
+  pageViewMode,
+  onPageViewMode,
 }: {
   document: EditorDocument;
   editor: Editor | null;
@@ -126,13 +129,16 @@ export function PageCanvas({
   onPageMarginsChange: (pageIndex: number, margins: PageMargins) => void;
   showGuides: boolean;
   onZoom: (zoom: number) => void;
+  pageViewMode: PageViewMode;
+  onPageViewMode: (mode: PageViewMode) => void;
 }) {
   const scale = zoom / 100;
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasWidth, setCanvasWidth] = useState(0);
   const [dragTip, setDragTip] = useState<{ x: number; y: number; text: string } | null>(null);
   const [fileDragActive, setFileDragActive] = useState(false);
-  const selectedObject = document.pages[currentPage]?.objects.find((object) => object.id === selectedObjectId) ?? null;
+  const activePage = document.pages[currentPage] ?? document.pages[0];
+  const selectedObject = activePage?.objects.find((object) => object.id === selectedObjectId) ?? null;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -145,11 +151,26 @@ export function PageCanvas({
   }, []);
 
   const fittedScale = (page: DocumentPage) => {
+    if (pageViewMode === 'spread' && canvasWidth > 720) {
+      const availableWidth = Math.max(220, (canvasWidth - 118) / 2);
+      return Math.max(0.25, Math.min(scale, availableWidth / pageGeometry(page).widthPx));
+    }
     if (!canvasWidth || canvasWidth > 720) return scale;
     const availableWidth = Math.max(220, canvasWidth - 28);
     return Math.max(0.25, Math.min(scale, availableWidth / pageGeometry(page).widthPx));
   };
-  const visibleScale = fittedScale(document.pages[currentPage]);
+
+  const activatePage = (pageIndex: number, point?: { left: number; top: number }) => {
+    onSelectObject(null);
+    if (pageIndex === currentPage) return;
+    onCurrentPage(pageIndex);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!editor) return;
+      const position = (point && editor.view.posAtCoords(point)?.pos) ?? editor.state.doc.content.size;
+      editor.chain().focus().setTextSelection(position).run();
+    }));
+  };
+  const visibleScale = activePage ? fittedScale(activePage) : scale;
   const pageNumberText = (index: number) => {
     const value = document.settings.pageNumber.start + index;
     if (document.settings.pageNumber.format === 'dash') return `- ${value} -`;
@@ -208,17 +229,18 @@ export function PageCanvas({
   };
 
   return <>
-    {pageNavOpen && <aside className="page-nav" aria-label="페이지 탐색 및 선택 속성"><div className="panel-title"><strong>페이지</strong><button type="button" onClick={onAddPage} aria-label="페이지 추가"><Plus size={15} /></button></div><div className="page-thumb-list">{document.pages.map((page, index) => <button className={index === currentPage ? 'page-thumb selected' : 'page-thumb'} type="button" key={page.id} onClick={() => onCurrentPage(index)}><span className="thumb-paper"><i /><i /><i /></span><small>{index + 1}</small></button>)}</div>{selectedObject && <ObjectInspector object={selectedObject} page={document.pages[currentPage]} pageWidth={pageGeometry(document.pages[currentPage]).widthPx} pageHeight={pageGeometry(document.pages[currentPage]).heightPx} onChange={(patch) => onObjectChange(selectedObject.id, patch, true)} onAction={onObjectAction} />}</aside>}
+    {pageNavOpen && <aside className="page-nav" aria-label="페이지 탐색 및 선택 속성"><div className="panel-title"><strong>페이지</strong><button type="button" onClick={onAddPage} aria-label="페이지 추가"><Plus size={15} /></button></div><div className="page-thumb-list">{document.pages.map((page, index) => <button className={index === currentPage ? 'page-thumb selected' : 'page-thumb'} type="button" key={page.id} onClick={() => onCurrentPage(index)}><span className="thumb-paper"><i /><i /><i /></span><small>{index + 1}</small></button>)}</div>{selectedObject && activePage && <ObjectInspector object={selectedObject} page={activePage} pageWidth={pageGeometry(activePage).widthPx} pageHeight={pageGeometry(activePage).heightPx} onChange={(patch) => onObjectChange(selectedObject.id, patch, true)} onAction={onObjectAction} />}</aside>}
     <div className={fileDragActive ? 'canvas-area file-drag-active' : 'canvas-area'} ref={canvasRef} onDragOver={(event) => { event.preventDefault(); setFileDragActive(true); }} onDragLeave={(event) => { if (event.currentTarget === event.target) setFileDragActive(false); }} onDrop={() => setFileDragActive(false)}>
-      <div className="canvas-tools"><span>{document.pages[currentPage].preset} · {document.pages[currentPage].orientation === 'portrait' ? '세로' : '가로'}</span><span className="canvas-zoom"><button type="button" aria-label="축소" onClick={() => onZoom(Math.max(50, zoom - 25))}><Minus size={14} /></button><b>{visibleScale < scale ? `맞춤 ${Math.round(visibleScale * 100)}%` : `${zoom}%`}</b><button type="button" aria-label="확대" onClick={() => onZoom(Math.min(150, zoom + 25))}><Plus size={14} /></button></span></div>
+      <div className="canvas-tools"><span>{activePage?.preset} · {activePage?.orientation === 'portrait' ? '세로' : '가로'}</span><div className="page-view-switch" role="group" aria-label="페이지 배치"><button className={pageViewMode === 'single' ? 'active' : ''} type="button" onClick={() => onPageViewMode('single')} aria-pressed={pageViewMode === 'single'} title="한 쪽씩 보기 (Alt+1)"><Rows3 size={14} /><span>한 쪽</span></button><button className={pageViewMode === 'spread' ? 'active' : ''} type="button" onClick={() => onPageViewMode('spread')} aria-pressed={pageViewMode === 'spread'} title="두 쪽 나란히 보기 (Alt+2)"><Columns2 size={14} /><span>나란히</span></button>{document.pages.length > 1 && <button type="button" onClick={() => onCurrentPage((currentPage + 1) % document.pages.length)} aria-label="다음 쪽 편집">다음</button>}{pageViewMode === 'spread' && <b>{pageViewRange(currentPage, document.pages.length)}</b>}</div><span className="canvas-zoom"><button type="button" aria-label="축소" onClick={() => onZoom(Math.max(50, zoom - 25))}><Minus size={14} /></button><b>{visibleScale < scale ? `맞춤 ${Math.round(visibleScale * 100)}%` : `${zoom}%`}</b><button type="button" aria-label="확대" onClick={() => onZoom(Math.min(150, zoom + 25))}><Plus size={14} /></button></span></div>
       {fileDragActive && <div className="canvas-drop-hint" role="status">파일을 놓으면 현재 쪽에 가져옵니다</div>}
-      <div className="page-stack">
+      <div className={`page-stack ${pageViewMode === 'spread' ? 'spread' : 'single'}`}>
         {document.pages.map((page, index) => {
           const geometry = pageGeometry(page);
           const pageScale = fittedScale(page);
           const padding = `${mmToPx(page.margins.top)}px ${mmToPx(page.margins.right)}px ${mmToPx(page.margins.bottom)}px ${mmToPx(page.margins.left)}px`;
-          return <div className={index === currentPage ? 'paper-wrapper current' : 'paper-wrapper'} key={page.id} style={{ width: geometry.widthPx * pageScale, height: geometry.heightPx * pageScale, '--paper-width': `${geometry.widthPx}px`, '--paper-height': `${geometry.heightPx}px` } as React.CSSProperties} onClick={() => onCurrentPage(index)}>
-          <article className="paper exportable-page" data-page-index={index} aria-label={`${page.preset} 문서 ${index + 1}쪽`} style={{ width: geometry.widthPx, minHeight: geometry.heightPx, transform: `scale(${pageScale})`, background: page.background }} onDrop={(event) => { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); onFiles(event.dataTransfer.files, index, { x: (event.clientX - rect.left) / pageScale, y: (event.clientY - rect.top) / pageScale }); }}>
+          return <div className={index === currentPage ? 'paper-wrapper current' : 'paper-wrapper'} key={page.id} style={{ width: geometry.widthPx * pageScale, height: geometry.heightPx * pageScale, '--paper-width': `${geometry.widthPx}px`, '--paper-height': `${geometry.heightPx}px` } as React.CSSProperties}>
+          <article className="paper exportable-page" data-page-index={index} aria-label={`${page.preset} 문서 ${index + 1}쪽`} aria-current={index === currentPage ? 'page' : undefined} style={{ width: geometry.widthPx, minHeight: geometry.heightPx, transform: `scale(${pageScale})`, background: page.background }} onClick={(event) => activatePage(index, { left: event.clientX, top: event.clientY })} onDrop={(event) => { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); onFiles(event.dataTransfer.files, index, { x: (event.clientX - rect.left) / pageScale, y: (event.clientY - rect.top) / pageScale }); }}>
+            {index !== currentPage && <button className="page-activate-overlay" type="button" aria-label={`${index + 1}쪽 클릭하여 편집`} onClick={(event) => { event.stopPropagation(); activatePage(index, { left: event.clientX, top: event.clientY }); }} />}
             {index === currentPage ? <span className="active-frame-size" style={{ '--inverse-page-scale': String(1 / pageScale) } as React.CSSProperties}>
             {showGuides ? <>
                 <button type="button" className="margin-handle top" aria-label={`위쪽 여백 조절 (${Math.round(page.margins.top * 10) / 10}mm)`} onPointerDown={(event) => dragMargin(event, page, index, 'top')} style={{ top: mmToPx(page.margins.top), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }} />

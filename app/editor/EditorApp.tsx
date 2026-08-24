@@ -33,8 +33,7 @@ import { useFontPreferences } from './hooks/use-font-preferences';
 import { printWithOriginalImages, useDocumentExport } from './hooks/use-document-export';
 import { useDocumentState } from './hooks/use-document';
 import { useAppDefaults } from './hooks/use-app-defaults'; import { useShareLinkLaunch } from './hooks/use-share-link-launch';
-import { useViewportZoom } from './hooks/use-viewport-zoom';
-import { useClipboardImages } from './hooks/use-clipboard-images';
+import { useViewportZoom } from './hooks/use-viewport-zoom'; import { useClipboardImages } from './hooks/use-clipboard-images'; import { usePageViewMode } from './hooks/use-page-view-mode';
 import { rowsToTable } from './table-utils';
 function paragraphsFromText(text: string): RichTextDocument {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -73,6 +72,7 @@ export function EditorApp() {
   const [fontLibraryOpen, setFontLibraryOpen] = useState(false);
   const [pageSetupOpen, setPageSetupOpen] = useState(false); const [reviewOpen, setReviewOpen] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
+  const { pageViewMode, setPageViewMode } = usePageViewMode();
   useShareLinkLaunch(setScreen, setCloudOpen);
   const { favoriteFonts, toggleFavoriteFont } = useFontPreferences();
   const [recent, setRecent] = useState<EditorDocument[]>([]);
@@ -114,12 +114,11 @@ export function EditorApp() {
   });
 
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
-
   useEffect(() => {
     const page = store.document.pages[currentPage];
     if (!editor || !page) return;
     const pageChanged = pageIdRef.current !== page.id;
-    if (!pageChanged && JSON.stringify(editor.getJSON()) === JSON.stringify(page.textFlow)) return;
+    if (!pageChanged && (editor.isFocused || JSON.stringify(editor.getJSON()) === JSON.stringify(page.textFlow))) return;
     pageIdRef.current = page.id; editor.commands.setContent(page.textFlow as JSONContent, { emitUpdate: false });
     if (pageChanged) setSelectedObjectId(null);
   }, [currentPage, editor, store.document.pages]);
@@ -298,8 +297,8 @@ export function EditorApp() {
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const modifier = event.ctrlKey || event.metaKey;
-      const target = event.target as HTMLElement | null;
-      const typing = Boolean(target?.closest('input, textarea, [contenteditable="true"]'));
+      const target = event.target;
+      const typing = event.isComposing || (target instanceof Element && Boolean(target.closest('input, textarea, [contenteditable="true"]')));
       if (modifier && event.key.toLowerCase() === 's') { event.preventDefault(); void store.saveNow(); }
       if (modifier && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); }
       if (modifier && event.shiftKey && event.key.toLowerCase() === 'z') { event.preventDefault(); redo(); }
@@ -404,7 +403,7 @@ export function EditorApp() {
         zoom={zoom}
         pageNavOpen={pageNavOpen}
         selectedObjectId={selectedObjectId}
-        onCurrentPage={(page) => { setCurrentPage(page); pageIdRef.current = ''; }}
+        onCurrentPage={setCurrentPage}
         onAddPage={() => addPage()}
         onSelectObject={setSelectedObjectId}
         onFiles={(files, page, position) => void handleFiles(files, page, position)}
@@ -415,6 +414,7 @@ export function EditorApp() {
         onPageMarginsChange={onPageMarginsChange}
         showGuides={showPageGuides}
         onZoom={setManualZoom}
+        pageViewMode={pageViewMode} onPageViewMode={setPageViewMode}
       />
       {aiOpen && <AIAssistantPanel selectedText={selectionText} documentText={documentToText(store.document)} onClose={() => setAiOpen(false)} onApply={applyAi} />}
     </section>
