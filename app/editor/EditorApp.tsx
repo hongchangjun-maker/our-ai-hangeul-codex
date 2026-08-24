@@ -31,7 +31,7 @@ import { WelcomeScreen } from './components/WelcomeScreen';
 import { FontSize, LineHeight } from './extensions/formatting';
 import { useFontPreferences } from './hooks/use-font-preferences';
 import { printWithOriginalImages, useDocumentExport } from './hooks/use-document-export';
-import { useDocumentState } from './hooks/use-document';
+import { useDocumentState } from './hooks/use-document'; import { useTypingPerformanceProbe } from './hooks/use-typing-performance-probe';
 import { useAppDefaults } from './hooks/use-app-defaults'; import { useShareLinkLaunch } from './hooks/use-share-link-launch';
 import { useViewportZoom } from './hooks/use-viewport-zoom'; import { useClipboardImages } from './hooks/use-clipboard-images'; import { usePageViewMode } from './hooks/use-page-view-mode';
 import { rowsToTable } from './table-utils';
@@ -40,7 +40,7 @@ function paragraphsFromText(text: string): RichTextDocument {
   return { type: 'doc', content: lines.map((line) => line ? { type: 'paragraph', content: [{ type: 'text', text: line }] } : { type: 'paragraph' }) };
 }
 export function EditorApp() {
-  const store = useDocumentState();
+  useTypingPerformanceProbe(); const store = useDocumentState();
   const { defaults: appDefaults, refresh: refreshAppDefaults } = useAppDefaults();
   const pageLayoutScopeStorageKey = 'our-ai-hangeul:page-layout-scope';
   const pageGuidesStorageKey = 'our-ai-hangeul:show-page-guides';
@@ -82,10 +82,10 @@ export function EditorApp() {
   const objectClipboard = useRef<DocumentObject | null>(null);
   const textActionAt = useRef(0);
   const documentActionAt = useRef(0);
-  const pageIdRef = useRef('');
+  const pageIdRef = useRef(''); const composingRef = useRef(false);
 
   const editor = useEditor({
-    immediatelyRender: false,
+    immediatelyRender: false, shouldRerenderOnTransaction: false,
     extensions: [
       StarterKit,
       TextStyle,
@@ -101,19 +101,20 @@ export function EditorApp() {
       TableCell,
     ],
     content: store.document.pages[0].textFlow as JSONContent,
-    editorProps: { attributes: { class: 'document-editor', 'aria-label': '문서 본문 편집 영역', spellcheck: 'true' } },
+    editorProps: { attributes: { class: 'document-editor', 'aria-label': '문서 본문 편집 영역', spellcheck: 'true' }, handleDOMEvents: {
+      compositionstart() { composingRef.current = true; store.flushEditorUpdates(); return false; }, compositionend(view) { composingRef.current = false; queueMicrotask(() => { store.bufferEditorPage(currentPageRef.current, view.state.doc.toJSON() as RichTextDocument); store.flushEditorUpdates(); }); return false; }, blur() { store.flushEditorUpdates(); return false; },
+    } },
     onUpdate({ editor: activeEditor }) {
       textActionAt.current = Date.now();
-      const pageIndex = currentPageRef.current;
-      store.updateDocument((document) => ({ ...document, pages: document.pages.map((page, index) => index === pageIndex ? { ...page, textFlow: activeEditor.getJSON() as RichTextDocument } : page) }), false);
+      if (composingRef.current) return;
+      store.bufferEditorPage(currentPageRef.current, activeEditor.getJSON() as RichTextDocument);
     },
-    onSelectionUpdate({ editor: activeEditor }) {
-      const { from, to } = activeEditor.state.selection;
+    onSelectionUpdate({ editor: activeEditor }) { const { from, to } = activeEditor.state.selection;
       setSelectionText(from === to ? '' : activeEditor.state.doc.textBetween(from, to, '\n').slice(0, 20_000));
     },
   });
 
-  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
+  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]); const selectPage = (pageIndex: number) => { store.flushEditorUpdates(); currentPageRef.current = pageIndex; setCurrentPage(pageIndex); };
   useEffect(() => {
     const page = store.document.pages[currentPage];
     if (!editor || !page) return;
@@ -123,8 +124,7 @@ export function EditorApp() {
     if (pageChanged) setSelectedObjectId(null);
   }, [currentPage, editor, store.document.pages]);
 
-  useEffect(() => {
-    try { localStorage.setItem(pageLayoutScopeStorageKey, pageLayoutScope); } catch { /* localStorage unavailable */ }
+  useEffect(() => { try { localStorage.setItem(pageLayoutScopeStorageKey, pageLayoutScope); } catch { /* localStorage unavailable */ }
   }, [pageLayoutScope]);
 
   useEffect(() => {
@@ -176,13 +176,13 @@ export function EditorApp() {
         if (result.kind === 'document') { openDocument(result.document); if (result.notice) setToast({ type: 'info', message: result.notice }); continue; }
         if (result.kind === 'text') {
           const nodes = paragraphsFromText(result.text).content ?? [];
-          if (pageIndex !== currentPageRef.current) setCurrentPage(pageIndex);
+          if (pageIndex !== currentPageRef.current) selectPage(pageIndex);
           setTimeout(() => editor?.chain().focus().insertContent(nodes).run(), 0);
           continue;
         }
         if (result.kind === 'table') {
           if (!result.rows.length) throw new Error('CSV에서 표 데이터를 찾지 못했습니다.');
-          if (pageIndex !== currentPageRef.current) setCurrentPage(pageIndex);
+          if (pageIndex !== currentPageRef.current) selectPage(pageIndex);
           setTimeout(() => editor?.chain().focus().insertContent(rowsToTable(result.rows)).run(), 0);
           continue;
         }
@@ -367,19 +367,19 @@ export function EditorApp() {
       onAddPage={() => addPage()}
       onDuplicatePage={duplicateCurrentPage}
       onDeletePage={deleteCurrentPage}
-      onExport={() => { setExportOpen(true); clearExportMessage(); }}
+      onExport={() => { store.flushEditorUpdates(); setExportOpen(true); clearExportMessage(); }}
       onPrint={() => void printWithOriginalImages()}
       onAdmin={() => setAdminOpen(true)}
-      onPageSetup={() => setPageSetupOpen(true)}
-      onReview={() => setReviewOpen(true)}
-      onCloudSync={() => setCloudOpen(true)}
-      onToggleAi={() => setAiOpen((value) => !value)}
+      onPageSetup={() => { store.flushEditorUpdates(); setPageSetupOpen(true); }}
+      onReview={() => { store.flushEditorUpdates(); setReviewOpen(true); }}
+      onCloudSync={() => { store.flushEditorUpdates(); setCloudOpen(true); }}
+      onToggleAi={() => { store.flushEditorUpdates(); setAiOpen((value) => !value); }}
       onTogglePageNav={() => setPageNavOpen((value) => !value)}
       onZoom={setManualZoom}
       onFitPage={fitPage}
       onInsertObject={insertObject}
       onObjectAction={objectAction}
-      documentText={documentToText(store.document)}
+      statisticsDocument={store.document}
       selectionText={selectionText}
       pagePreset={currentPageState.preset}
       pageOrientation={currentPageState.orientation}
@@ -403,7 +403,7 @@ export function EditorApp() {
         zoom={zoom}
         pageNavOpen={pageNavOpen}
         selectedObjectId={selectedObjectId}
-        onCurrentPage={setCurrentPage}
+        onCurrentPage={selectPage}
         onAddPage={() => addPage()}
         onSelectObject={setSelectedObjectId}
         onFiles={(files, page, position) => void handleFiles(files, page, position)}

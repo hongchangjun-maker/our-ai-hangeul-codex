@@ -11,3 +11,7 @@ export function pageViewRange(currentPage: number, pageCount: number) {
   const last = Math.min(Math.max(0, pageCount - 1), first + 1);
   return first === last ? `${first + 1}쪽` : `${first + 1}–${last + 1}쪽`;
 }
+
+export function shouldVirtualizePage(pageCount: number, currentPage: number, pageIndex: number, renderAllPages = false) {
+  return !renderAllPages && pageCount > 20 && Math.abs(pageIndex - currentPage) > 2;
+}

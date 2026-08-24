@@ -59,8 +59,9 @@ export function RealtimeCollaboration({ editor, document, currentPage, onRemoteP
 
   useEffect(() => {
     if (!editor || status !== 'live' || !ownsPage || !pageId) return;
-    const selection = () => { const socket = socketRef.current; if (socket?.readyState !== WebSocket.OPEN) return; const { from, to } = editor.state.selection; socket.send(JSON.stringify({ type: 'selection', pageId, from, to })); };
-    editor.on('selectionUpdate', selection); return () => { editor.off('selectionUpdate', selection); };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const selection = () => { clearTimeout(timer); timer = setTimeout(() => { const socket = socketRef.current; if (socket?.readyState !== WebSocket.OPEN) return; const { from, to } = editor.state.selection; socket.send(JSON.stringify({ type: 'selection', pageId, from, to })); }, 160); };
+    editor.on('selectionUpdate', selection); return () => { clearTimeout(timer); editor.off('selectionUpdate', selection); };
   }, [editor, ownsPage, pageId, status]);
 
   useEffect(() => {

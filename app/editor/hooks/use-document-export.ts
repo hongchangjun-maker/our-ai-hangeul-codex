@@ -9,16 +9,18 @@ export type ExportType = 'pdf' | 'png' | 'hwpx' | 'docx' | 'odt' | 'rtf' | 'mark
 async function withCleanOutput<T>(task: () => Promise<T>) {
   const root = globalThis.document.documentElement;
   root.classList.add('document-output-mode');
+  dispatchEvent(new CustomEvent('our-ai-hangeul:render-all-pages', { detail: { enabled: true } }));
   await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   try { return await task(); }
-  finally { root.classList.remove('document-output-mode'); }
+  finally { root.classList.remove('document-output-mode'); dispatchEvent(new CustomEvent('our-ai-hangeul:render-all-pages', { detail: { enabled: false } })); }
 }
 
 export async function printWithOriginalImages() {
+  dispatchEvent(new CustomEvent('our-ai-hangeul:render-all-pages', { detail: { enabled: true } }));
   dispatchEvent(new CustomEvent('our-ai-hangeul:image-output-mode', { detail: { original: true } }));
   await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   globalThis.print();
-  setTimeout(() => dispatchEvent(new CustomEvent('our-ai-hangeul:image-output-mode', { detail: { original: false } })), 500);
+  setTimeout(() => { dispatchEvent(new CustomEvent('our-ai-hangeul:image-output-mode', { detail: { original: false } })); dispatchEvent(new CustomEvent('our-ai-hangeul:render-all-pages', { detail: { enabled: false } })); }, 500);
 }
 
 export function useDocumentExport(document: EditorDocument) {
@@ -32,7 +34,7 @@ export function useDocumentExport(document: EditorDocument) {
       else if (type === 'txt') exportText(document);
       else if (type === 'markdown') exportMarkdown(document);
       else if (type === 'rtf') exportRtf(document);
-      else if (type === 'html') { const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page .page-margin')).map((element) => element.innerHTML); exportHtml(document, pages); }
+      else if (type === 'html') await withCleanOutput(async () => { const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page .page-margin')).map((element) => element.innerHTML); exportHtml(document, pages); });
       else if (type === 'print') await printWithOriginalImages();
       else if (type === 'docx' || type === 'hwpx' || type === 'odt') {
         setBusy(true);

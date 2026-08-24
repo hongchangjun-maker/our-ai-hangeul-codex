@@ -1,6 +1,6 @@
 'use client';
 
-import type { Editor } from '@tiptap/react';
+import { type Editor, useEditorState } from '@tiptap/react';
 import {
   AlignCenter,
   AlignJustify,
@@ -40,7 +40,8 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
-import { DOCUMENT_STYLE_PRESETS, PAGE_PRESET_LABELS, type DocumentObject, type DocumentStyleId, type PagePreset } from '../../domain/document';
+import { DOCUMENT_STYLE_PRESETS, PAGE_PRESET_LABELS, type DocumentObject, type DocumentStyleId, type EditorDocument, type PagePreset } from '../../domain/document';
+import { useDocumentStatistics } from '../hooks/use-document-statistics';
 import { DEFAULT_FAVORITE_FONT_FAMILIES, DEFAULT_FONT_FAMILY, ENGLISH_FONTS, KOREAN_FONTS, fontLabel, isBundledFont } from '../font-catalog';
 import { WindowModeControls } from './WindowModeControls';
 
@@ -92,7 +93,7 @@ export function EditorChrome({
   onFitPage,
   onInsertObject,
   onObjectAction,
-  documentText,
+  statisticsDocument,
   selectionText,
 }: {
   editor: Editor | null;
@@ -138,10 +139,18 @@ export function EditorChrome({
   onFitPage: () => void;
   onInsertObject: (type: 'text-box' | 'shape') => void;
   onObjectAction: (action: 'front' | 'back' | 'lock' | 'duplicate' | 'delete' | 'center-x' | 'center-y') => void;
-  documentText: string;
+  statisticsDocument: EditorDocument;
   selectionText: string;
 }) {
   const [menu, setMenu] = useState<string | null>(null);
+  const formatting = useEditorState({ editor, selector: ({ editor: value }) => ({
+    font: value?.getAttributes('textStyle').fontFamily || DEFAULT_FONT_FAMILY,
+    size: String(value?.getAttributes('textStyle').fontSize || '11pt').replace('pt', ''),
+    block: value?.isActive('heading', { level: 1 }) ? 'h1' : value?.isActive('heading', { level: 2 }) ? 'h2' : value?.isActive('heading', { level: 3 }) ? 'h3' : value?.isActive('blockquote') ? 'quote' : 'p',
+    bold: Boolean(value?.isActive('bold')), italic: Boolean(value?.isActive('italic')), underline: Boolean(value?.isActive('underline')), strike: Boolean(value?.isActive('strike')),
+    align: value?.isActive({ textAlign: 'center' }) ? 'center' : value?.isActive({ textAlign: 'right' }) ? 'right' : value?.isActive({ textAlign: 'justify' }) ? 'justify' : 'left',
+    bullet: Boolean(value?.isActive('bulletList')), ordered: Boolean(value?.isActive('orderedList')), table: Boolean(value?.isActive('table')),
+  }) }) ?? { font: DEFAULT_FONT_FAMILY, size: '11', block: 'p', bold: false, italic: false, underline: false, strike: false, align: 'left', bullet: false, ordered: false, table: false };
   const menus = [
     { label: '파일', icon: FileText },
     { label: '글자', icon: Type },
@@ -152,12 +161,11 @@ export function EditorChrome({
     { label: 'AI', icon: Sparkles },
     { label: '보기', icon: Eye },
   ];
-  const selectedFont = editor?.getAttributes('textStyle').fontFamily || DEFAULT_FONT_FAMILY;
+  const selectedFont = formatting.font;
   const applyFont = (family: string) => editor?.chain().focus().setFontFamily(family).run();
   const quickFonts = (favoriteFonts.length ? favoriteFonts : DEFAULT_FAVORITE_FONT_FAMILIES).filter(isBundledFont).slice(0, 6);
-  const blockStyle = editor?.isActive('heading', { level: 1 }) ? 'h1' : editor?.isActive('heading', { level: 2 }) ? 'h2' : editor?.isActive('heading', { level: 3 }) ? 'h3' : editor?.isActive('blockquote') ? 'quote' : 'p';
-  const characters = documentText.length;
-  const words = documentText.trim() ? documentText.trim().split(/\s+/u).length : 0;
+  const blockStyle = formatting.block;
+  const { characters, words } = useDocumentStatistics(statisticsDocument);
 
   const textTools = <>
     <div className="quick-fonts" aria-label="자주 쓰는 글꼴">
@@ -178,21 +186,21 @@ export function EditorChrome({
     <select className="style-tool" aria-label="문서 스타일" value={documentStyleId} onChange={(event) => onDocumentStyle(event.target.value as DocumentStyleId)}>
       {DOCUMENT_STYLE_PRESETS.map((style) => <option key={style.id} value={style.id}>{style.label} · {style.description}</option>)}
     </select>
-    <select className="size-tool" aria-label="글자 크기" value={(editor?.getAttributes('textStyle').fontSize || '11pt').replace('pt', '')} onChange={(event) => editor?.chain().focus().setFontSize(`${event.target.value}pt`).run()}>
+    <select className="size-tool" aria-label="글자 크기" value={formatting.size} onChange={(event) => editor?.chain().focus().setFontSize(`${event.target.value}pt`).run()}>
       {[8,9,10,11,12,14,16,18,20,24,28,32,40,48].map((size) => <option key={size}>{size}</option>)}
     </select>
     <span className="divider" />
-    <ToolButton label="굵게" active={editor?.isActive('bold')} onClick={() => editor?.chain().focus().toggleBold().run()}><strong>가</strong></ToolButton>
-    <ToolButton label="기울임" active={editor?.isActive('italic')} onClick={() => editor?.chain().focus().toggleItalic().run()}><em>가</em></ToolButton>
-    <ToolButton label="밑줄" active={editor?.isActive('underline')} onClick={() => editor?.chain().focus().toggleUnderline().run()}><u>가</u></ToolButton>
-    <ToolButton label="취소선" active={editor?.isActive('strike')} onClick={() => editor?.chain().focus().toggleStrike().run()}><s>가</s></ToolButton>
+    <ToolButton label="굵게" active={formatting.bold} onClick={() => editor?.chain().focus().toggleBold().run()}><strong>가</strong></ToolButton>
+    <ToolButton label="기울임" active={formatting.italic} onClick={() => editor?.chain().focus().toggleItalic().run()}><em>가</em></ToolButton>
+    <ToolButton label="밑줄" active={formatting.underline} onClick={() => editor?.chain().focus().toggleUnderline().run()}><u>가</u></ToolButton>
+    <ToolButton label="취소선" active={formatting.strike} onClick={() => editor?.chain().focus().toggleStrike().run()}><s>가</s></ToolButton>
     <label className="color-tool" title="글자색"><span>가</span><input type="color" aria-label="글자색" defaultValue="#1e2a27" onChange={(event) => editor?.chain().focus().setColor(event.target.value).run()} /></label>
     <label className="highlight-tool" title="형광펜"><span>형광</span><input type="color" aria-label="형광펜 색" defaultValue="#fff3a3" onChange={(event) => editor?.chain().focus().toggleHighlight({ color: event.target.value }).run()} /></label>
     <span className="divider" />
-    <ToolButton label="왼쪽 정렬" active={editor?.isActive({ textAlign: 'left' })} onClick={() => editor?.chain().focus().setTextAlign('left').run()}><AlignLeft size={18} /></ToolButton>
-    <ToolButton label="가운데 정렬" active={editor?.isActive({ textAlign: 'center' })} onClick={() => editor?.chain().focus().setTextAlign('center').run()}><AlignCenter size={18} /></ToolButton>
-    <ToolButton label="오른쪽 정렬" active={editor?.isActive({ textAlign: 'right' })} onClick={() => editor?.chain().focus().setTextAlign('right').run()}><AlignRight size={18} /></ToolButton>
-    <ToolButton label="양쪽 정렬" active={editor?.isActive({ textAlign: 'justify' })} onClick={() => editor?.chain().focus().setTextAlign('justify').run()}><AlignJustify size={18} /></ToolButton>
+    <ToolButton label="왼쪽 정렬" active={formatting.align === 'left'} onClick={() => editor?.chain().focus().setTextAlign('left').run()}><AlignLeft size={18} /></ToolButton>
+    <ToolButton label="가운데 정렬" active={formatting.align === 'center'} onClick={() => editor?.chain().focus().setTextAlign('center').run()}><AlignCenter size={18} /></ToolButton>
+    <ToolButton label="오른쪽 정렬" active={formatting.align === 'right'} onClick={() => editor?.chain().focus().setTextAlign('right').run()}><AlignRight size={18} /></ToolButton>
+    <ToolButton label="양쪽 정렬" active={formatting.align === 'justify'} onClick={() => editor?.chain().focus().setTextAlign('justify').run()}><AlignJustify size={18} /></ToolButton>
     <select className="line-height-tool" aria-label="줄 간격" defaultValue="1.7" onChange={(event) => editor?.chain().focus().setLineHeight(event.target.value).run()}>
       <option value="1.2">줄 120%</option><option value="1.5">줄 150%</option><option value="1.7">줄 170%</option><option value="2">줄 200%</option>
     </select>
@@ -205,18 +213,18 @@ export function EditorChrome({
     }}>
       <option value="p">본문</option><option value="h1">제목 1</option><option value="h2">제목 2</option><option value="h3">제목 3</option><option value="quote">인용문</option>
     </select>
-    <ToolButton label="글머리표 목록" active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={18} /></ToolButton>
-    <ToolButton label="번호 목록" active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={18} /></ToolButton>
+    <ToolButton label="글머리표 목록" active={formatting.bullet} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={18} /></ToolButton>
+    <ToolButton label="번호 목록" active={formatting.ordered} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={18} /></ToolButton>
   </>;
 
   const tableTools = <>
     <button className="label-tool" type="button" onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><Table2 size={17} /> 3×3 표</button>
-    <ToolButton label="아래 행 추가" onClick={() => editor?.chain().focus().addRowAfter().run()} disabled={!editor?.isActive('table')}><Plus size={16} />행</ToolButton>
-    <ToolButton label="오른쪽 열 추가" onClick={() => editor?.chain().focus().addColumnAfter().run()} disabled={!editor?.isActive('table')}><Plus size={16} />열</ToolButton>
-    <ToolButton label="행 삭제" onClick={() => editor?.chain().focus().deleteRow().run()} disabled={!editor?.isActive('table')}><Minus size={16} />행</ToolButton>
-    <ToolButton label="열 삭제" onClick={() => editor?.chain().focus().deleteColumn().run()} disabled={!editor?.isActive('table')}><Minus size={16} />열</ToolButton>
-    <button className="label-tool" type="button" disabled={!editor?.isActive('table')} onClick={() => editor?.chain().focus().mergeOrSplit().run()}>셀 병합/나누기</button>
-    <ToolButton label="표 삭제" onClick={() => editor?.chain().focus().deleteTable().run()} disabled={!editor?.isActive('table')}><Trash2 size={16} /></ToolButton>
+    <ToolButton label="아래 행 추가" onClick={() => editor?.chain().focus().addRowAfter().run()} disabled={!formatting.table}><Plus size={16} />행</ToolButton>
+    <ToolButton label="오른쪽 열 추가" onClick={() => editor?.chain().focus().addColumnAfter().run()} disabled={!formatting.table}><Plus size={16} />열</ToolButton>
+    <ToolButton label="행 삭제" onClick={() => editor?.chain().focus().deleteRow().run()} disabled={!formatting.table}><Minus size={16} />행</ToolButton>
+    <ToolButton label="열 삭제" onClick={() => editor?.chain().focus().deleteColumn().run()} disabled={!formatting.table}><Minus size={16} />열</ToolButton>
+    <button className="label-tool" type="button" disabled={!formatting.table} onClick={() => editor?.chain().focus().mergeOrSplit().run()}>셀 병합/나누기</button>
+    <ToolButton label="표 삭제" onClick={() => editor?.chain().focus().deleteTable().run()} disabled={!formatting.table}><Trash2 size={16} /></ToolButton>
   </>;
 
   return <>

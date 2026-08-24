@@ -3,10 +3,10 @@
 import type { Editor } from '@tiptap/react';
 import { EditorContent } from '@tiptap/react';
 import { Columns2, FileText, Minus, Plus, Rows3 } from 'lucide-react';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import type { DocumentObject, DocumentPage, EditorDocument, PageMargins } from '../../domain/document';
 import { clamp, mmToPx, pageGeometry, pxToMm } from '../../domain/geometry';
-import { pageViewRange, type PageViewMode } from '../page-view';
+import { pageViewRange, shouldVirtualizePage, type PageViewMode } from '../page-view';
 import { ImageAssetView } from './ImageAssetView';
 import { ObjectLayer } from './ObjectLayer';
 import { ObjectInspector } from './ObjectInspector';
@@ -78,18 +78,18 @@ function RichNode({ node, nodeKey }: { node: unknown; nodeKey: string | number }
   return <Fragment key={nodeKey}>{children}</Fragment>;
 }
 
-export function ReadOnlyRichText({ page }: { page: DocumentPage }) {
+export const ReadOnlyRichText = memo(function ReadOnlyRichText({ page }: { page: DocumentPage }) {
   return <div className="document-editor read-only">{page.textFlow.content?.map((node, index) => <RichNode key={index} nodeKey={index} node={node} />)}</div>;
-}
+});
 
-function ReadOnlyObject({ object, displayScale }: { object: DocumentObject; displayScale: number }) {
+const ReadOnlyObject = memo(function ReadOnlyObject({ object, displayScale }: { object: DocumentObject; displayScale: number }) {
   let content: React.ReactNode;
   if (object.type === 'image') content = <ImageAssetView object={object} displayScale={displayScale} lazy />;
   else if (object.type === 'attachment') content = <div className="attachment-card"><span><FileText size={22} /></span><span><strong>{object.name || '첨부 파일'}</strong><small>문서 첨부</small></span></div>;
   else if (object.type === 'text-box') content = <div className="free-text-box" style={{ background: object.style?.background }}>{object.text || '텍스트 상자'}</div>;
   else content = <div className="free-shape" style={{ background: object.style?.background, borderColor: object.style?.borderColor, borderWidth: object.style?.borderWidth, borderRadius: object.style?.borderRadius }} />;
   return <div className="document-object read-only-object" data-pdf-native={object.type === 'image' && ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(object.mediaType || '') ? 'true' : undefined} style={{ left: object.x, top: object.y, width: object.width, height: object.height, transform: `rotate(${object.rotation}deg)`, zIndex: object.zIndex, opacity: object.opacity, borderRadius: object.style?.borderRadius, boxShadow: object.style?.shadow ? '0 10px 26px rgba(23,45,38,.18)' : undefined }}>{content}</div>;
-}
+});
 
 export function PageCanvas({
   document,
@@ -137,6 +137,7 @@ export function PageCanvas({
   const [canvasWidth, setCanvasWidth] = useState(0);
   const [dragTip, setDragTip] = useState<{ x: number; y: number; text: string } | null>(null);
   const [fileDragActive, setFileDragActive] = useState(false);
+  const [renderAllPages, setRenderAllPages] = useState(false);
   const activePage = document.pages[currentPage] ?? document.pages[0];
   const selectedObject = activePage?.objects.find((object) => object.id === selectedObjectId) ?? null;
 
@@ -148,6 +149,12 @@ export function PageCanvas({
     const observer = new ResizeObserver(measure);
     observer.observe(canvas);
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const toggle = (event: Event) => setRenderAllPages(Boolean((event as CustomEvent<{ enabled?: boolean }>).detail?.enabled));
+    window.addEventListener('our-ai-hangeul:render-all-pages', toggle);
+    return () => window.removeEventListener('our-ai-hangeul:render-all-pages', toggle);
   }, []);
 
   const fittedScale = (page: DocumentPage) => {
@@ -238,9 +245,11 @@ export function PageCanvas({
           const geometry = pageGeometry(page);
           const pageScale = fittedScale(page);
           const padding = `${mmToPx(page.margins.top)}px ${mmToPx(page.margins.right)}px ${mmToPx(page.margins.bottom)}px ${mmToPx(page.margins.left)}px`;
+          const virtual = shouldVirtualizePage(document.pages.length, currentPage, index, renderAllPages);
           return <div className={index === currentPage ? 'paper-wrapper current' : 'paper-wrapper'} key={page.id} style={{ width: geometry.widthPx * pageScale, height: geometry.heightPx * pageScale, '--paper-width': `${geometry.widthPx}px`, '--paper-height': `${geometry.heightPx}px` } as React.CSSProperties}>
           <article className="paper exportable-page" data-page-index={index} aria-label={`${page.preset} 문서 ${index + 1}쪽`} aria-current={index === currentPage ? 'page' : undefined} style={{ width: geometry.widthPx, minHeight: geometry.heightPx, transform: `scale(${pageScale})`, background: page.background }} onClick={(event) => activatePage(index, { left: event.clientX, top: event.clientY })} onDrop={(event) => { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); onFiles(event.dataTransfer.files, index, { x: (event.clientX - rect.left) / pageScale, y: (event.clientY - rect.top) / pageScale }); }}>
             {index !== currentPage && <button className="page-activate-overlay" type="button" aria-label={`${index + 1}쪽 클릭하여 편집`} onClick={(event) => { event.stopPropagation(); activatePage(index, { left: event.clientX, top: event.clientY }); }} />}
+            {virtual ? <div className="virtual-page-placeholder" aria-hidden="true"><FileText size={34} /><strong>{index + 1}쪽</strong><span>클릭하면 편집 내용을 불러옵니다</span></div> : <>
             {index === currentPage ? <span className="active-frame-size" style={{ '--inverse-page-scale': String(1 / pageScale) } as React.CSSProperties}>
             {showGuides ? <>
                 <button type="button" className="margin-handle top" aria-label={`위쪽 여백 조절 (${Math.round(page.margins.top * 10) / 10}mm)`} onPointerDown={(event) => dragMargin(event, page, index, 'top')} style={{ top: mmToPx(page.margins.top), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }} />
@@ -260,6 +269,7 @@ export function PageCanvas({
               {(page.header || (document.settings.pageNumber.enabled && document.settings.pageNumber.position === 'header-right')) && <div className="page-header" style={{ top: Math.max(7, mmToPx(page.margins.top) / 2), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }}><span>{page.header}</span>{document.settings.pageNumber.enabled && document.settings.pageNumber.position === 'header-right' && <b>{pageNumberText(index)}</b>}</div>}
               {(page.footer || (document.settings.pageNumber.enabled && document.settings.pageNumber.position.startsWith('footer'))) && <div className={`page-footer ${document.settings.pageNumber.position}`} style={{ bottom: Math.max(7, mmToPx(page.margins.bottom) / 2), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }}><span>{page.footer}</span>{document.settings.pageNumber.enabled && document.settings.pageNumber.position.startsWith('footer') && <b>{pageNumberText(index)}</b>}</div>}
               {index === currentPage ? <ObjectLayer objects={page.objects} pageWidth={geometry.widthPx} pageHeight={geometry.heightPx} displayScale={pageScale} selectedId={selectedObjectId} snapEnabled={document.settings.snapEnabled} guidesEnabled={document.settings.guidesEnabled} onSelect={onSelectObject} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} onChange={onObjectChange} onAction={onObjectAction} /> : <div className="object-layer read-only-layer">{page.objects.map((object) => <ReadOnlyObject key={object.id} object={object} displayScale={pageScale} />)}</div>}
+            </>}
             </article>
           </div>;
         })}

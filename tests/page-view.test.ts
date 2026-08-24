@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pageViewRange, restorePageViewMode } from '../app/editor/page-view';
+import { pageViewRange, restorePageViewMode, shouldVirtualizePage } from '../app/editor/page-view';
 
 describe('page view preferences', () => {
   it('restores only a supported page view mode', () => {
@@ -12,5 +12,14 @@ describe('page view preferences', () => {
     expect(pageViewRange(0, 8)).toBe('1–2쪽');
     expect(pageViewRange(3, 8)).toBe('3–4쪽');
     expect(pageViewRange(4, 5)).toBe('5쪽');
+  });
+
+  it('keeps only nearby pages live and restores every page for output', () => {
+    expect(shouldVirtualizePage(300, 149, 149)).toBe(false);
+    expect(shouldVirtualizePage(300, 149, 151)).toBe(false);
+    expect(shouldVirtualizePage(300, 149, 152)).toBe(true);
+    expect(shouldVirtualizePage(300, 149, 299)).toBe(true);
+    expect(shouldVirtualizePage(300, 149, 299, true)).toBe(false);
+    expect(shouldVirtualizePage(20, 0, 19)).toBe(false);
   });
 });

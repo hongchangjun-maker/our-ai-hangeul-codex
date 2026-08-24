@@ -1,11 +1,25 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createDocument, migrateDocument, type EditorDocument } from '../../domain/document';
+import { createDocument, migrateDocument, type EditorDocument, type RichTextDocument } from '../../domain/document';
 import { loadLastDocument, recoveryState, saveDocument } from '../../infrastructure/local-storage';
 
 type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 const HISTORY_LIMIT = 80;
+export const EDITOR_BUFFER_IDLE_MS = 120;
+export const EDITOR_BUFFER_MAX_MS = 1_000;
+
+export function applyBufferedPageText(document: EditorDocument, pending: ReadonlyMap<string, RichTextDocument>) {
+  if (!pending.size) return document;
+  let changed = false;
+  const pages = document.pages.map((page) => {
+    const textFlow = pending.get(page.id);
+    if (!textFlow || textFlow === page.textFlow) return page;
+    changed = true;
+    return { ...page, textFlow };
+  });
+  return changed ? { ...document, pages, updatedAt: new Date().toISOString() } : document;
+}
 
 export function useDocumentState() {
   const [document, setDocumentState] = useState<EditorDocument>(() => createDocument());
@@ -17,6 +31,43 @@ export function useDocumentState() {
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [recoveryCandidate, setRecoveryCandidate] = useState<EditorDocument | null>(null);
   const [ready, setReady] = useState(false);
+  const pendingText = useRef(new Map<string, RichTextDocument>());
+  const editorIdleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editorMaxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savePromise = useRef<Promise<boolean> | null>(null);
+  const saveAgain = useRef(false);
+
+  const clearEditorTimers = useCallback(() => {
+    if (editorIdleTimer.current) clearTimeout(editorIdleTimer.current);
+    if (editorMaxTimer.current) clearTimeout(editorMaxTimer.current);
+    editorIdleTimer.current = null;
+    editorMaxTimer.current = null;
+  }, []);
+
+  const materializeEditorText = useCallback((publish = true) => {
+    clearEditorTimers();
+    if (!pendingText.current.size) return currentRef.current;
+    const next = applyBufferedPageText(currentRef.current, pendingText.current);
+    pendingText.current.clear();
+    currentRef.current = next;
+    if (publish) setDocumentState(next);
+    setSaveStatus('dirty');
+    recoveryState.markDirty();
+    return next;
+  }, [clearEditorTimers]);
+
+  const flushEditorUpdates = useCallback(() => materializeEditorText(true), [materializeEditorText]);
+
+  const bufferEditorPage = useCallback((pageIndex: number, textFlow: RichTextDocument, composing = false) => {
+    const page = currentRef.current.pages[pageIndex];
+    if (!page) return;
+    pendingText.current.set(page.id, textFlow);
+    if (savePromise.current) saveAgain.current = true;
+    if (composing) return;
+    if (editorIdleTimer.current) clearTimeout(editorIdleTimer.current);
+    editorIdleTimer.current = setTimeout(() => { materializeEditorText(true); }, EDITOR_BUFFER_IDLE_MS);
+    editorMaxTimer.current ??= setTimeout(() => { materializeEditorText(true); }, EDITOR_BUFFER_MAX_MS);
+  }, [materializeEditorText]);
 
   useEffect(() => { currentRef.current = document; }, [document]);
 
@@ -29,6 +80,8 @@ export function useDocumentState() {
     }).catch(() => setReady(true));
     return () => { active = false; };
   }, []);
+
+  useEffect(() => () => clearEditorTimers(), [clearEditorTimers]);
 
   const apply = useCallback((next: EditorDocument, recordHistory: boolean) => {
     const stamped = { ...next, updatedAt: new Date().toISOString() };
@@ -44,10 +97,12 @@ export function useDocumentState() {
   }, []);
 
   const updateDocument = useCallback((updater: (document: EditorDocument) => EditorDocument, recordHistory = true) => {
-    apply(updater(currentRef.current), recordHistory);
-  }, [apply]);
+    apply(updater(materializeEditorText(false)), recordHistory);
+  }, [apply, materializeEditorText]);
 
   const replaceDocument = useCallback((next: EditorDocument) => {
+    clearEditorTimers();
+    pendingText.current.clear();
     const migrated = migrateDocument(next);
     past.current = [];
     future.current = [];
@@ -56,11 +111,12 @@ export function useDocumentState() {
     setDocumentState(migrated);
     setSaveStatus('dirty');
     recoveryState.markDirty();
-  }, []);
+  }, [clearEditorTimers]);
 
   const createNew = useCallback((templateId = 'blank', defaults?: { defaultFont?: string; autosaveDelayMs?: number }) => replaceDocument(createDocument(templateId, defaults)), [replaceDocument]);
 
   const undoDocument = useCallback(() => {
+    materializeEditorText(false);
     const previous = past.current.pop();
     if (!previous) return false;
     future.current = [structuredClone(currentRef.current), ...future.current].slice(0, HISTORY_LIMIT);
@@ -70,9 +126,10 @@ export function useDocumentState() {
     setHistoryState({ canUndo: past.current.length > 0, canRedo: true });
     recoveryState.markDirty();
     return true;
-  }, []);
+  }, [materializeEditorText]);
 
   const redoDocument = useCallback(() => {
+    materializeEditorText(false);
     const next = future.current.shift();
     if (!next) return false;
     past.current = [...past.current.slice(-(HISTORY_LIMIT - 1)), structuredClone(currentRef.current)];
@@ -82,9 +139,9 @@ export function useDocumentState() {
     setHistoryState({ canUndo: true, canRedo: future.current.length > 0 });
     recoveryState.markDirty();
     return true;
-  }, []);
+  }, [materializeEditorText]);
 
-  const beginTransaction = useCallback(() => structuredClone(currentRef.current), []);
+  const beginTransaction = useCallback(() => structuredClone(materializeEditorText(false)), [materializeEditorText]);
   const updateTransient = useCallback((updater: (document: EditorDocument) => EditorDocument) => {
     const next = updater(currentRef.current);
     currentRef.current = next;
@@ -98,19 +155,24 @@ export function useDocumentState() {
     setHistoryState({ canUndo: true, canRedo: false });
   }, []);
 
-  const saveNow = useCallback(async () => {
-    setSaveStatus('saving');
-    try {
-      await saveDocument(currentRef.current);
+  const saveNow = useCallback(() => {
+    if (savePromise.current) { saveAgain.current = true; return savePromise.current; }
+    const task = (async () => {
+      do {
+        saveAgain.current = false;
+        const snapshot = materializeEditorText(true);
+        setSaveStatus('saving');
+        try { await saveDocument(snapshot); }
+        catch { setSaveStatus('error'); return false; }
+      } while (saveAgain.current || pendingText.current.size > 0);
       setSaveStatus('saved');
       setLastSavedAt(new Date());
       recoveryState.markSaved();
       return true;
-    } catch {
-      setSaveStatus('error');
-      return false;
-    }
-  }, []);
+    })();
+    savePromise.current = task.finally(() => { savePromise.current = null; });
+    return savePromise.current;
+  }, [materializeEditorText]);
 
   useEffect(() => {
     if (!ready || saveStatus !== 'dirty') return;
@@ -128,6 +190,8 @@ export function useDocumentState() {
     canUndoDocument: historyState.canUndo,
     canRedoDocument: historyState.canRedo,
     updateDocument,
+    bufferEditorPage,
+    flushEditorUpdates,
     replaceDocument,
     createNew,
     undoDocument,
