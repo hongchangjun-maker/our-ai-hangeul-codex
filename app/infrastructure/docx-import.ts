@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
-import { createDocument, createPage, PAGE_PRESETS, type DocumentObject, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
+import { createDocument, createPage, MAX_DOCUMENT_PAGES, PAGE_PRESETS, type DocumentObject, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
 import { mmToPx } from '../domain/geometry';
+import { imagePixelSize } from './image-metadata';
 import { storeAsset } from './local-storage';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -150,6 +151,7 @@ export async function importDocxDocument(file: File): Promise<EditorDocument> {
   const pageBreak = (kind: 'rendered' | 'explicit' | 'section', scope: number) => {
     if (kind === 'section' && boundaryOpen) return;
     if (boundaryOpen && lastBoundaryScope === scope && lastBoundary !== kind) return;
+    if (builders.length >= MAX_DOCUMENT_PAGES) throw new Error(`가져올 문서는 최대 ${MAX_DOCUMENT_PAGES}쪽까지 지원합니다.`);
     builder = newBuilder(layout); builders.push(builder); boundaryOpen = true; lastBoundary = kind; lastBoundaryScope = scope;
   };
   const touch = () => { builder.visible = true; boundaryOpen = false; lastBoundary = null; lastBoundaryScope = -1; };
@@ -183,7 +185,7 @@ export async function importDocxDocument(file: File): Promise<EditorDocument> {
     const rotation = number(first(container, A, 'xfrm')?.getAttribute('rot')) / 60_000;
     const description = first(container, WP, 'docPr'); const name = description?.getAttribute('descr') || description?.getAttribute('name') || relation?.target.split('/').pop();
     let object: DocumentObject | null = null;
-    if (relation?.target) { const asset = await imageAsset(relation.target); if (asset) object = { id: crypto.randomUUID(), type: 'image', x, y, width, height, rotation, zIndex: container.getAttribute('behindDoc') === '1' ? 1 : 20 + builder.page.objects.length, locked: false, opacity: 1, assetId: asset.id, name: name || asset.name, mediaType: asset.mediaType, size: asset.size }; }
+    if (relation?.target) { const asset = await imageAsset(relation.target); if (asset) { const source = await imagePixelSize(asset.blob); object = { id: crypto.randomUUID(), type: 'image', x, y, width, height, rotation, zIndex: container.getAttribute('behindDoc') === '1' ? 1 : 20 + builder.page.objects.length, locked: false, opacity: 1, assetId: asset.id, name: name || asset.name, mediaType: asset.mediaType, size: asset.size, sourceWidthPx: source.width, sourceHeightPx: source.height }; } }
     else if (text) object = { id: crypto.randomUUID(), type: 'text-box', x, y, width, height, rotation, zIndex: 20 + builder.page.objects.length, locked: false, opacity: 1, text, name: name || 'DOCX 글상자', style: { background: '#ffffff', borderColor: '#8eb8ad', borderWidth: 1 } };
     if (object) { builder.page.objects.push(object); touch(); if (!anchored) builder.estimatedY = Math.max(builder.estimatedY, y + height + 8); }
   };
@@ -194,7 +196,8 @@ export async function importDocxDocument(file: File): Promise<EditorDocument> {
     const toPx = (value: string | undefined, fallback: number) => value?.endsWith('pt') ? number(value.slice(0, -2)) * 96 / 72 : number(value, fallback);
     const asset = await imageAsset(relation.target); if (!asset) return;
     const width = toPx(style.width, 180); const height = toPx(style.height, 100);
-    builder.page.objects.push({ id: crypto.randomUUID(), type: 'image', x: toPx(style['margin-left'], alignment === 'center' ? (layout.sourceWidthPx - width) / 2 : mmToPx(layout.margins.left)), y: toPx(style['margin-top'], builder.estimatedY), width, height, rotation: number(style.rotation), zIndex: 20 + builder.page.objects.length, locked: false, opacity: 1, assetId: asset.id, name: asset.name, mediaType: asset.mediaType, size: asset.size }); touch();
+    const source = await imagePixelSize(asset.blob);
+    builder.page.objects.push({ id: crypto.randomUUID(), type: 'image', x: toPx(style['margin-left'], alignment === 'center' ? (layout.sourceWidthPx - width) / 2 : mmToPx(layout.margins.left)), y: toPx(style['margin-top'], builder.estimatedY), width, height, rotation: number(style.rotation), zIndex: 20 + builder.page.objects.length, locked: false, opacity: 1, assetId: asset.id, name: asset.name, mediaType: asset.mediaType, size: asset.size, sourceWidthPx: source.width, sourceHeightPx: source.height }); touch();
   };
   const addParagraph = async (paragraph: Element) => {
     const scope = ++paragraphSequence;

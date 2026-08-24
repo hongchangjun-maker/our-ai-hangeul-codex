@@ -1,4 +1,4 @@
-import { createDocument, createPage, type DocumentObject, type EditorDocument, type RichTextDocument } from '../domain/document';
+import { createDocument, createPage, MAX_DOCUMENT_PAGES, type DocumentObject, type EditorDocument, type RichTextDocument } from '../domain/document';
 import { storeAsset } from './local-storage';
 import { importDocxDocument } from './docx-import';
 
@@ -117,6 +117,7 @@ async function restoreObjectMetadata(file: File, extension: string, document: Ed
   const metadataText = await zip.file(metadataPath)?.async('text'); if (!metadataText) return document;
   const metadata = JSON.parse(metadataText) as { format?: string; settings?: EditorDocument['settings']['pageNumber']; pages?: Array<{ header?: string; footer?: string; objects?: DocumentObject[] }> };
   if (metadata.format !== 'our-ai-hangeul-objects-v1' || !Array.isArray(metadata.pages)) return document;
+  if (metadata.pages.length > MAX_DOCUMENT_PAGES) throw new Error(`가져올 문서는 최대 ${MAX_DOCUMENT_PAGES}쪽까지 지원합니다.`);
   const pages = [...document.pages]; while (pages.length < metadata.pages.length) pages.push(createPage());
   for (let index = 0; index < metadata.pages.length; index += 1) {
     const source = metadata.pages[index]; const objects: DocumentObject[] = [];

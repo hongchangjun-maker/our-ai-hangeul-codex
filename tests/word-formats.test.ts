@@ -2,9 +2,10 @@ import { Document, Packer, PageBreak, Paragraph } from 'docx';
 import JSZip from 'jszip';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { createDocument, createPage } from '../app/domain/document';
-import { buildDocxBlob, exportHwpx, exportOdt } from '../app/infrastructure/export-service';
+import { buildDocxBlob, buildSourceBlob, exportHwpx, exportOdt } from '../app/infrastructure/export-service';
 import { buildHwpxBlob } from '../app/infrastructure/hwpx-export';
 import { importFile } from '../app/infrastructure/file-import';
+import { getAsset, storeAsset } from '../app/infrastructure/local-storage';
 
 const downloadBlobs: Blob[] = [];
 const originalCreateObjectUrl = URL.createObjectURL;
@@ -25,6 +26,41 @@ function importedText(result: Awaited<ReturnType<typeof importFile>>) {
 }
 
 describe('word document format boundary', () => {
+  it('accepts exactly 500 DOCX pages and rejects page 501 before building the editor document', async () => {
+    const fixture = async (pages: number) => {
+      const zip = new JSZip();
+      const breaks = Array.from({ length: pages - 1 }, () => '<w:p><w:r><w:br w:type="page"/></w:r></w:p>').join('');
+      zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>시작</w:t></w:r></w:p>${breaks}</w:body></w:document>`);
+      return new File([await zip.generateAsync({ type: 'blob' })], `${pages}-pages.docx`, { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    };
+    const accepted = await importFile(await fixture(500));
+    expect(accepted.kind).toBe('document');
+    if (accepted.kind === 'document') expect(accepted.document.pages).toHaveLength(500);
+    await expect(importFile(await fixture(501))).rejects.toThrow('최대 500쪽');
+  });
+
+  it('preserves uploaded image bytes in OAH, DOCX and HWPX packages', async () => {
+    const bytes = new Uint8Array(40); bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    const view = new DataView(bytes.buffer); view.setUint32(16, 1600); view.setUint32(20, 900); bytes.set([11, 29, 47, 83, 131, 197], 30);
+    const asset = await storeAsset(new Blob([bytes], { type: 'image/png' }), 'original.png', 'image/png');
+    const document = createDocument();
+    document.pages[0].objects = [{ id: 'image-1', type: 'image', x: 30, y: 40, width: 500, height: 281, rotation: 0, zIndex: 4, locked: false, opacity: 1, assetId: asset.id, name: asset.name, mediaType: asset.mediaType, size: asset.size, sourceWidthPx: 1600, sourceHeightPx: 900 }];
+
+    const sourceBlob = await buildSourceBlob(document);
+    const sourceZip = await JSZip.loadAsync(sourceBlob);
+    expect(await sourceZip.file(`assets/${asset.id}`)?.async('uint8array')).toEqual(bytes);
+    const sourceImported = await importFile(new File([sourceBlob], 'roundtrip.oah', { type: 'application/vnd.our-ai-hangeul+zip' }));
+    expect(sourceImported.kind).toBe('document');
+    if (sourceImported.kind === 'document') {
+      const importedId = sourceImported.document.pages[0].objects[0].assetId!;
+      expect(new Uint8Array(await (await getAsset(importedId))!.blob.arrayBuffer())).toEqual(bytes);
+    }
+
+    const docxZip = await JSZip.loadAsync(await buildDocxBlob(document));
+    expect(await docxZip.file(`customXml/assets/${asset.id}`)?.async('uint8array')).toEqual(bytes);
+    const hwpxZip = await JSZip.loadAsync(await buildHwpxBlob(document));
+    expect(await hwpxZip.file(`BinData/${asset.id}`)?.async('uint8array')).toEqual(bytes);
+  });
   it('imports DOCX body text through the browser conversion path', async () => {
     const docx = new Document({ sections: [{ children: [new Paragraph('DOCX 문서 본문')] }] });
     const file = new File([await Packer.toBlob(docx)], 'example.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });

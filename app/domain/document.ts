@@ -10,6 +10,8 @@ export const PAGE_PRESETS = {
   Legal: { widthMm: 215.9, heightMm: 355.6 },
 } as const;
 
+export const MAX_DOCUMENT_PAGES = 500;
+
 export type PagePreset = keyof typeof PAGE_PRESETS;
 export type Orientation = 'portrait' | 'landscape';
 export type ObjectType = 'image' | 'attachment' | 'text-box' | 'shape';
@@ -104,6 +106,8 @@ export interface DocumentObject {
   name?: string;
   mediaType?: string;
   size?: number;
+  sourceWidthPx?: number;
+  sourceHeightPx?: number;
   text?: string;
   style?: {
     borderColor?: string;
@@ -240,7 +244,7 @@ function validateDocumentShape(value: EditorDocument) {
   const styleIds: DocumentStyleId[] = ['modern', 'report', 'classic', 'presentation', 'code'];
   const pageNumber = record(settings?.pageNumber);
   if (!settings || !stringValue(settings.defaultFont, 128) || !stringValue(settings.headingFont, 128) || !numberValue(settings.defaultFontSize, 6, 96) || !numberValue(settings.lineHeight, 0.8, 4) || !styleIds.includes(settings.documentStyleId as DocumentStyleId) || typeof settings.snapEnabled !== 'boolean' || typeof settings.guidesEnabled !== 'boolean' || !numberValue(settings.autosaveDelayMs, 500, 10_000) || !pageNumber || typeof pageNumber.enabled !== 'boolean' || !numberValue(pageNumber.start, 0, 100_000) || !['header-right', 'footer-center', 'footer-right'].includes(String(pageNumber.position)) || !['number', 'dash', 'page-of-total'].includes(String(pageNumber.format))) throw new Error('문서 기본 설정이 올바르지 않습니다.');
-  if (!Array.isArray(value.pages) || value.pages.length === 0 || value.pages.length > 500) throw new Error('문서 페이지 수가 올바르지 않습니다.');
+  if (!Array.isArray(value.pages) || value.pages.length === 0 || value.pages.length > MAX_DOCUMENT_PAGES) throw new Error(`문서는 최대 ${MAX_DOCUMENT_PAGES}쪽까지 열고 편집할 수 있습니다.`);
   for (const page of value.pages) {
     const raw = record(page);
     const margins = record(raw?.margins);
@@ -248,7 +252,7 @@ function validateDocumentShape(value: EditorDocument) {
     if (!raw || !stringValue(raw.id) || typeof raw.preset !== 'string' || !(raw.preset in PAGE_PRESETS) || !['portrait', 'landscape'].includes(String(raw.orientation)) || !margins || !['top', 'right', 'bottom', 'left'].every((edge) => numberValue(margins[edge], 0, 500)) || !stringValue(raw.background, 128) || textFlow?.type !== 'doc' || (textFlow.content !== undefined && !Array.isArray(textFlow.content)) || !Array.isArray(raw.objects) || raw.objects.length > 2_000) throw new Error('문서 페이지 데이터가 올바르지 않습니다.');
     for (const object of raw.objects) {
       const item = record(object);
-      if (!item || !stringValue(item.id) || !['image', 'attachment', 'text-box', 'shape'].includes(String(item.type)) || !numberValue(item.x, -10_000, 100_000) || !numberValue(item.y, -10_000, 100_000) || !numberValue(item.width, 1, 100_000) || !numberValue(item.height, 1, 100_000) || !numberValue(item.rotation, -360_000, 360_000) || !numberValue(item.zIndex, -1_000_000, 1_000_000) || typeof item.locked !== 'boolean' || !numberValue(item.opacity, 0, 1)) throw new Error('문서 개체 데이터가 올바르지 않습니다.');
+      if (!item || !stringValue(item.id) || !['image', 'attachment', 'text-box', 'shape'].includes(String(item.type)) || !numberValue(item.x, -10_000, 100_000) || !numberValue(item.y, -10_000, 100_000) || !numberValue(item.width, 1, 100_000) || !numberValue(item.height, 1, 100_000) || !numberValue(item.rotation, -360_000, 360_000) || !numberValue(item.zIndex, -1_000_000, 1_000_000) || typeof item.locked !== 'boolean' || !numberValue(item.opacity, 0, 1) || (item.sourceWidthPx !== undefined && !numberValue(item.sourceWidthPx, 1, 100_000)) || (item.sourceHeightPx !== undefined && !numberValue(item.sourceHeightPx, 1, 100_000))) throw new Error('문서 개체 데이터가 올바르지 않습니다.');
     }
   }
   if (!Array.isArray(value.fonts) || !value.fonts.every((font) => typeof font === 'string') || !Array.isArray(value.comments)) throw new Error('문서 부가 정보가 올바르지 않습니다.');

@@ -192,6 +192,7 @@ export function ObjectLayer({
             className={`document-object ${selected ? 'selected' : ''} ${object.locked ? 'locked' : ''}`}
             key={object.id}
             data-object-id={object.id}
+            data-pdf-native={object.type === 'image' && ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(object.mediaType || '') ? 'true' : undefined}
             style={{ left: object.x, top: object.y, width: object.width, height: object.height, transform: `rotate(${object.rotation}deg)`, zIndex: object.zIndex, opacity: object.opacity, borderRadius: object.style?.borderRadius, boxShadow: object.style?.shadow ? '0 10px 26px rgba(23,45,38,.18)' : undefined }}
             onPointerDown={(event) => beginMove(event, object.id)}
             onContextMenu={(event) => {

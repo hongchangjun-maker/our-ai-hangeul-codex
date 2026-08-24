@@ -95,7 +95,7 @@ function ReadOnlyObject({ object }: { object: DocumentObject }) {
   else if (object.type === 'attachment') content = <div className="attachment-card"><span><FileText size={22} /></span><span><strong>{object.name || '첨부 파일'}</strong><small>문서 첨부</small></span></div>;
   else if (object.type === 'text-box') content = <div className="free-text-box" style={{ background: object.style?.background }}>{object.text || '텍스트 상자'}</div>;
   else content = <div className="free-shape" style={{ background: object.style?.background, borderColor: object.style?.borderColor, borderWidth: object.style?.borderWidth, borderRadius: object.style?.borderRadius }} />;
-  return <div className="document-object read-only-object" style={{ left: object.x, top: object.y, width: object.width, height: object.height, transform: `rotate(${object.rotation}deg)`, zIndex: object.zIndex, opacity: object.opacity, borderRadius: object.style?.borderRadius, boxShadow: object.style?.shadow ? '0 10px 26px rgba(23,45,38,.18)' : undefined }}>{content}</div>;
+  return <div className="document-object read-only-object" data-pdf-native={object.type === 'image' && ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(object.mediaType || '') ? 'true' : undefined} style={{ left: object.x, top: object.y, width: object.width, height: object.height, transform: `rotate(${object.rotation}deg)`, zIndex: object.zIndex, opacity: object.opacity, borderRadius: object.style?.borderRadius, boxShadow: object.style?.shadow ? '0 10px 26px rgba(23,45,38,.18)' : undefined }}>{content}</div>;
 }
 
 export function PageCanvas({

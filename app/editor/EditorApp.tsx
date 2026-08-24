@@ -14,7 +14,7 @@ import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { AlertTriangle, FileCheck2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { applyDocumentStylePreset, createPage, defaultMarginsForPreset, documentStylePreset, duplicatePage, migrateDocument, type DocumentObject, type DocumentStyleId, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
+import { applyDocumentStylePreset, createPage, defaultMarginsForPreset, documentStylePreset, duplicatePage, MAX_DOCUMENT_PAGES, migrateDocument, type DocumentObject, type DocumentStyleId, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
 import { fitPageObjects, pageGeometry } from '../domain/geometry';
 import { collectDocumentFontFamilies, documentToText } from '../infrastructure/export-service';
 import { importFile } from '../infrastructure/file-import';
@@ -226,16 +226,16 @@ export function EditorApp() {
     store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => index === currentPage ? { ...item, objects: [...item.objects, object] } : item) }));
     setSelectedObjectId(object.id); documentActionAt.current = Date.now();
   };
-
   const addPage = (content?: RichTextDocument) => {
+    if (store.document.pages.length >= MAX_DOCUMENT_PAGES) { setToast({ type: 'info', message: `문서는 최대 ${MAX_DOCUMENT_PAGES}쪽까지 만들 수 있습니다.` }); return; }
     const source = store.document.pages[currentPage] ?? store.document.pages[0];
     const page = createPage(content, source.preset, source.orientation, source.margins);
     store.updateDocument((document) => ({ ...document, pages: [...document.pages, page] }));
     pageIdRef.current = '';
     setCurrentPage(store.document.pages.length); documentActionAt.current = Date.now();
   };
-
   const duplicateCurrentPage = () => {
+    if (store.document.pages.length >= MAX_DOCUMENT_PAGES) { setToast({ type: 'info', message: `문서는 최대 ${MAX_DOCUMENT_PAGES}쪽까지 만들 수 있습니다.` }); return; }
     const page = duplicatePage(store.document.pages[currentPage]);
     store.updateDocument((document) => ({ ...document, pages: [...document.pages.slice(0, currentPage + 1), page, ...document.pages.slice(currentPage + 1)] }));
     pageIdRef.current = ''; setCurrentPage(currentPage + 1); documentActionAt.current = Date.now();

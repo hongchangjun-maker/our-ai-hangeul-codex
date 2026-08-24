@@ -1,6 +1,7 @@
-import type { EditorDocument, DocumentObject } from '../domain/document';
-import { storeAsset } from './local-storage';
+import { migrateDocument, type EditorDocument, type DocumentObject } from '../domain/document';
+import { storeAsset, storeAssetWithId } from './local-storage';
 import { WORD_IMPORT_EXTENSIONS, importWordDocument } from './word-formats';
+import { fittedImageSize, imagePixelSize } from './image-metadata';
 
 export const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']);
 export const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
@@ -13,9 +14,34 @@ export type ImportResult =
   | { kind: 'document'; document: EditorDocument; notice?: string }
   | { kind: 'attachment'; object: DocumentObject; notice?: string };
 
+async function importSourceDocument(file: File) {
+  const signature = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+  if (signature[0] !== 0x50 || signature[1] !== 0x4b) return migrateDocument(JSON.parse(await file.text()));
+  const { default: JSZip } = await import('jszip');
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const manifest = JSON.parse(await zip.file('manifest.json')?.async('text') ?? '{}') as { format?: string; document?: string; assets?: string[] };
+  if (manifest.format !== 'our-ai-hangeul-source-v2') throw new Error('우리의 AI 한글 원본 패키지 형식이 올바르지 않습니다.');
+  const documentText = await zip.file(manifest.document || 'document.json')?.async('text');
+  if (!documentText) throw new Error('원본 패키지에서 문서 정보를 찾지 못했습니다.');
+  const document = migrateDocument(JSON.parse(documentText));
+  const assetIds = new Set(document.pages.flatMap((page) => page.objects.map((object) => object.assetId).filter((id): id is string => Boolean(id))));
+  for (const id of assetIds) {
+    const blob = await zip.file(`assets/${id}`)?.async('blob');
+    if (!blob) throw new Error('원본 패키지의 이미지 또는 첨부 파일이 누락되었습니다.');
+    const object = document.pages.flatMap((page) => page.objects).find((item) => item.assetId === id);
+    await storeAssetWithId(id, blob, object?.name || '원본 자산', object?.mediaType || blob.type || 'application/octet-stream');
+  }
+  return document;
+}
+
 function extensionOf(name: string) {
   const dot = name.lastIndexOf('.');
   return dot < 0 ? '' : name.slice(dot + 1).toLowerCase();
+}
+
+function imageMediaType(extension: string, supplied: string) {
+  if (supplied.startsWith('image/')) return supplied;
+  return ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml' } as Record<string, string>)[extension] || 'application/octet-stream';
 }
 
 function parseCsv(text: string) {
@@ -52,17 +78,19 @@ export async function importFile(file: File, position = { x: 90, y: 120 }): Prom
   if (IMAGE_TYPES.has(file.type) || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'].includes(extension)) {
     if (file.size > MAX_IMAGE_BYTES) throw new Error('이미지는 30MB 이하만 삽입할 수 있습니다.');
     const blob = extension === 'svg' || file.type === 'image/svg+xml' ? await sanitizedSvg(file) : file;
-    const asset = await storeAsset(blob, file.name, blob.type);
+    const source = await imagePixelSize(blob);
+    const display = fittedImageSize(source);
+    const asset = await storeAsset(blob, file.name, imageMediaType(extension, blob.type));
     return {
       kind: 'image',
-      object: { id: crypto.randomUUID(), type: 'image', x: position.x, y: position.y, width: 260, height: 180, rotation: 0, zIndex: 10, locked: false, opacity: 1, assetId: asset.id, name: file.name, mediaType: asset.mediaType, size: file.size, style: { borderRadius: 4, shadow: true } },
+      object: { id: crypto.randomUUID(), type: 'image', x: position.x, y: position.y, width: display.width, height: display.height, rotation: 0, zIndex: 10, locked: false, opacity: 1, assetId: asset.id, name: file.name, mediaType: asset.mediaType, size: asset.size, sourceWidthPx: source.width, sourceHeightPx: source.height, style: { borderRadius: 4, shadow: true } },
     };
   }
 
   if (file.type === 'text/plain' || extension === 'txt') return { kind: 'text', text: await file.text() };
   if (file.type === 'text/csv' || extension === 'csv') return { kind: 'table', rows: parseCsv(await file.text()) };
   if (extension === 'json' || extension === 'oah') {
-    const parsed = JSON.parse(await file.text()) as EditorDocument;
+    const parsed = extension === 'oah' ? await importSourceDocument(file) : migrateDocument(JSON.parse(await file.text()) as EditorDocument);
     if (parsed.formatVersion && Array.isArray(parsed.pages)) return { kind: 'document', document: parsed };
   }
 

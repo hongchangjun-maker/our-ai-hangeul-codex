@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { createDocument, duplicatePage, migrateDocument } from '../app/domain/document';
+import { createDocument, createPage, duplicatePage, MAX_DOCUMENT_PAGES, migrateDocument } from '../app/domain/document';
 import { fitPageObjects, pageGeometry } from '../app/domain/geometry';
 
 describe('document domain', () => {
+  it('rejects documents beyond the 500-page editing boundary', () => {
+    const document = createDocument();
+    document.pages = Array.from({ length: MAX_DOCUMENT_PAGES + 1 }, () => createPage());
+    expect(() => migrateDocument(document)).toThrow('최대 500쪽');
+  });
   it('creates a versioned A4 document from each first-run template', () => {
     const report = createDocument('report');
     expect(report.formatVersion).toBe('1.2.0');

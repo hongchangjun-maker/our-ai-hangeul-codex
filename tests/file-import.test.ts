@@ -16,13 +16,19 @@ describe('file import boundary', () => {
   });
 
   it('stores image bytes in IndexedDB and keeps only an asset id in the document object', async () => {
-    const file = new File([new Uint8Array([137, 80, 78, 71])], 'photo.png', { type: 'image/png' });
+    const bytes = new Uint8Array(32);
+    bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    const view = new DataView(bytes.buffer); view.setUint32(16, 1200); view.setUint32(20, 800);
+    const file = new File([bytes], 'photo.png', { type: 'image/png' });
     const result = await importFile(file, { x: 20, y: 30 });
     expect(result.kind).toBe('image');
     if (result.kind !== 'image') return;
     expect(result.object.x).toBe(20);
+    expect(result.object).toMatchObject({ width: 520, height: 347, sourceWidthPx: 1200, sourceHeightPx: 800, size: bytes.byteLength });
     expect(result.object.assetId).toBeTruthy();
-    expect((await getAsset(result.object.assetId!))?.name).toBe('photo.png');
+    const stored = await getAsset(result.object.assetId!);
+    expect(stored?.name).toBe('photo.png');
+    expect(new Uint8Array(await stored!.blob.arrayBuffer())).toEqual(bytes);
   });
 
   it('rejects an invalid HWPX package instead of attaching it as a converted document', async () => {

@@ -1,7 +1,7 @@
 import { openDB, type DBSchema } from 'idb';
 import type { EditorDocument } from '../domain/document';
 
-interface AssetRecord {
+export interface AssetRecord {
   id: string;
   blob: Blob;
   name: string;
@@ -9,6 +9,8 @@ interface AssetRecord {
   size: number;
   createdAt: string;
 }
+
+type StoredAssetRecord = Omit<AssetRecord, 'blob'> & { data?: ArrayBuffer; blob?: Blob };
 
 interface OurHangeulDatabase extends DBSchema {
   documents: {
@@ -18,7 +20,7 @@ interface OurHangeulDatabase extends DBSchema {
   };
   assets: {
     key: string;
-    value: AssetRecord;
+    value: StoredAssetRecord;
   };
   metadata: {
     key: string;
@@ -27,15 +29,17 @@ interface OurHangeulDatabase extends DBSchema {
 }
 
 const DB_NAME = 'our-ai-hangeul';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 async function database() {
   return openDB<OurHangeulDatabase>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      const documents = db.createObjectStore('documents', { keyPath: 'id' });
-      documents.createIndex('by-updated', 'updatedAt');
-      db.createObjectStore('assets', { keyPath: 'id' });
-      db.createObjectStore('metadata', { keyPath: 'key' });
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        const documents = db.createObjectStore('documents', { keyPath: 'id' });
+        documents.createIndex('by-updated', 'updatedAt');
+        db.createObjectStore('assets', { keyPath: 'id' });
+        db.createObjectStore('metadata', { keyPath: 'key' });
+      }
     },
   });
 }
@@ -71,13 +75,18 @@ export async function storeAsset(file: Blob, name: string, mediaType = file.type
 }
 
 export async function storeAssetWithId(id: string, file: Blob, name: string, mediaType = file.type || 'application/octet-stream') {
-  const record: AssetRecord = { id, blob: file, name, mediaType, size: file.size, createdAt: new Date().toISOString() };
-  await (await database()).put('assets', record);
-  return record;
+  const data = await file.arrayBuffer();
+  const common = { id, name, mediaType, size: data.byteLength, createdAt: new Date().toISOString() };
+  await (await database()).put('assets', { ...common, data });
+  return { ...common, blob: new Blob([data], { type: mediaType }) } satisfies AssetRecord;
 }
 
 export async function getAsset(id: string) {
-  return (await database()).get('assets', id);
+  const record = await (await database()).get('assets', id);
+  if (!record) return undefined;
+  if (record.data) return { ...record, blob: new Blob([record.data], { type: record.mediaType }) } satisfies AssetRecord;
+  if (record.blob) return { ...record, blob: record.blob } satisfies AssetRecord;
+  return undefined;
 }
 
 export async function deleteAsset(id: string) {

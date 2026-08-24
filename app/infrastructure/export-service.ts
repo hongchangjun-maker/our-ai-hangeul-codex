@@ -45,8 +45,22 @@ export function documentToText(document: EditorDocument) {
   return document.pages.map((page, index) => `${document.pages.length > 1 ? `[${index + 1}쪽]\n` : ''}${textFromNode(page.textFlow)}`.trim()).join('\n\n');
 }
 
-export function exportSource(document: EditorDocument) {
-  downloadBlob(new Blob([JSON.stringify(document, null, 2)], { type: 'application/json' }), `${safeName(document.name)}.oah.json`);
+export async function buildSourceBlob(document: EditorDocument) {
+  const { default: JSZip } = await import('jszip');
+  const zip = new JSZip();
+  zip.file('mimetype', 'application/vnd.our-ai-hangeul+zip', { compression: 'STORE' });
+  zip.file('document.json', JSON.stringify(document));
+  const assetIds = [...new Set(document.pages.flatMap((page) => page.objects.map((object) => object.assetId).filter((id): id is string => Boolean(id))))];
+  for (const id of assetIds) {
+    const asset = await getAsset(id);
+    if (asset) zip.file(`assets/${id}`, asset.blob, { compression: 'STORE' });
+  }
+  zip.file('manifest.json', JSON.stringify({ format: 'our-ai-hangeul-source-v2', document: 'document.json', assets: assetIds }));
+  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+}
+
+export async function exportSource(document: EditorDocument) {
+  downloadBlob(await buildSourceBlob(document), `${safeName(document.name)}.oah`);
 }
 
 export function exportText(document: EditorDocument) {
@@ -211,7 +225,7 @@ export async function buildDocxBlob(document: EditorDocument) {
   const { default: JSZip } = await import('jszip');
   const zip = await JSZip.loadAsync(base);
   zip.file('customXml/our-ai-document.json', JSON.stringify({ format: 'our-ai-hangeul-objects-v1', pages: document.pages.map((page) => ({ objects: page.objects })) }));
-  for (const page of document.pages) for (const object of page.objects) if (object.assetId) { const asset = await getAsset(object.assetId); if (asset) zip.file(`customXml/assets/${object.assetId}`, asset.blob); }
+  for (const page of document.pages) for (const object of page.objects) if (object.assetId) { const asset = await getAsset(object.assetId); if (asset) zip.file(`customXml/assets/${object.assetId}`, asset.blob, { compression: 'STORE' }); }
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
 
@@ -240,7 +254,7 @@ export async function exportPdf(document: EditorDocument, pages: { page: HTMLEle
     const { page } = pages[index];
     const { geometry } = pageInfos[index];
     onProgress?.(`${index + 1}/${pages.length}쪽을 변환하는 중…`);
-    const canvas = await html2canvas(page, { scale: 1.6, useCORS: true, backgroundColor: '#ffffff', logging: false });
+    const canvas = await html2canvas(page, { scale: Math.max(2, globalThis.devicePixelRatio || 1), useCORS: true, backgroundColor: '#ffffff', logging: false, ignoreElements: (element) => element instanceof HTMLElement && element.dataset.pdfNative === 'true' });
     const pixelToMm = (value: number) => (value / 96) * 25.4;
     const widthMm = pixelToMm(canvas.width);
     const heightMm = pixelToMm(canvas.height);
@@ -251,8 +265,16 @@ export async function exportPdf(document: EditorDocument, pages: { page: HTMLEle
     const width = widthMm * ratio;
     const height = heightMm * ratio;
     const left = (geometry.widthMm - width) / 2;
-    const image = canvas.toDataURL('image/jpeg', 0.92);
-    pdf.addImage(image, 'JPEG', Math.max(0, left), 0, width, height, undefined, 'FAST');
+    const image = canvas.toDataURL('image/png');
+    pdf.addImage(image, 'PNG', Math.max(0, left), 0, width, height, undefined, 'NONE');
+    const sourcePage = document.pages[pageInfos[index].pageIndex];
+    for (const object of sourcePage.objects.filter((item) => item.type === 'image' && item.assetId).sort((leftObject, rightObject) => leftObject.zIndex - rightObject.zIndex)) {
+      const asset = await getAsset(object.assetId!);
+      const format = asset?.mediaType === 'image/png' ? 'PNG' : asset?.mediaType === 'image/jpeg' ? 'JPEG' : asset?.mediaType === 'image/webp' ? 'WEBP' : asset?.mediaType === 'image/gif' ? 'GIF' : null;
+      if (!asset || !format) continue;
+      const bytes = new Uint8Array(await asset.blob.arrayBuffer());
+      pdf.addImage(bytes, format, object.x / geometry.widthPx * geometry.widthMm, object.y / geometry.heightPx * geometry.heightMm, object.width / geometry.widthPx * geometry.widthMm, object.height / geometry.heightPx * geometry.heightMm, undefined, 'NONE', object.rotation);
+    }
   }
   pdf.save(`${safeName(document.name)}.pdf`);
   onProgress?.('PDF 저장이 완료되었습니다.');

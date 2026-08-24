@@ -21,7 +21,7 @@ export function useDocumentExport(document: EditorDocument) {
   const runExport = async (type: ExportType) => {
     setMessage('');
     try {
-      if (type === 'source') exportSource(document);
+      if (type === 'source') { setBusy(true); setMessage('원본 이미지가 포함된 OAH 패키지를 준비하는 중…'); await exportSource(document); }
       else if (type === 'txt') exportText(document);
       else if (type === 'markdown') exportMarkdown(document);
       else if (type === 'rtf') exportRtf(document);
@@ -45,7 +45,8 @@ export function useDocumentExport(document: EditorDocument) {
           finally { pages.forEach((entry, index) => { entry.page.style.transform = transforms[index]; }); }
         });
       }
-      if (!['pdf', 'docx', 'hwpx', 'odt'].includes(type)) setMessage('파일 저장을 시작했습니다.');
+      if (!['pdf', 'docx', 'hwpx', 'odt', 'source'].includes(type)) setMessage('파일 저장을 시작했습니다.');
+      else if (type === 'source') setMessage('무손실 원본 OAH 다운로드를 시작했습니다.');
     } catch (reason) { setMessage(reason instanceof Error ? reason.message : '내보내기에 실패했습니다.'); }
     finally { setBusy(false); }
   };
