@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { createDocument, createPage } from '../app/domain/document';
 import { buildDocxBlob, buildSourceBlob, exportHwpx, exportOdt } from '../app/infrastructure/export-service';
-import { buildHwpxBlob } from '../app/infrastructure/hwpx-export';
+import { buildHwpxBlob, validateHwpxPackage } from '../app/infrastructure/hwpx-export';
 import { importFile } from '../app/infrastructure/file-import';
 import { getAsset, storeAsset } from '../app/infrastructure/local-storage';
 
@@ -166,25 +166,43 @@ describe('word document format boundary', () => {
     const firstSection = await zip.file('Contents/section0.xml')!.async('text');
     const secondSection = await zip.file('Contents/section1.xml')!.async('text');
     const version = await zip.file('version.xml')!.async('text');
-    expect(zip.file('Contents/settings.xml')).toBeTruthy();
+    const manifest = await zip.file('META-INF/manifest.xml')!.async('text');
+    const settings = await zip.file('settings.xml')!.async('text');
+    expect(zip.file('Contents/settings.xml')).toBeNull();
+    expect(manifest).toContain('manifest:full-path="Contents/content.hpf" manifest:media-type="application/hwpml-package+xml"');
+    expect(settings).toContain('<ha:HWPApplicationSetting');
+    expect(settings).toContain('<ha:CaretPosition');
     expect(header).toContain('<hh:refList>');
     expect(header).toContain('<hh:charPr id="0"');
     expect(header).toContain('<hh:paraPr id="0"');
     expect(header).toContain('<hh:style id="0"');
     expect(content).toContain('<opf:itemref idref="section0"/>');
     expect(content).toContain('<opf:itemref idref="section1"/>');
-    expect(content).not.toContain('<opf:itemref idref="header"/>');
+    expect(content).toContain('<opf:item id="version" href="../version.xml"');
+    expect(content).toContain('<opf:item id="settings" href="../settings.xml"');
+    expect(content).toContain('<opf:itemref idref="header"/>');
     expect(firstSection).toContain('<hp:secPr');
     expect(firstSection).toContain('<hp:pagePr landscape="NARROWLY"');
     expect(firstSection).toContain('top="7200"');
     expect(secondSection).toContain('<hp:pagePr landscape="WIDELY"');
     expect(secondSection).toContain('둘째 쪽');
-    expect(version).toContain('targetApplication="WORDPROC"');
-    expect(version).toContain('http://www.hancom.co.kr/hwpml/2011/app');
-    for (const path of ['META-INF/container.xml', 'META-INF/manifest.xml', 'Contents/content.hpf', 'Contents/header.xml', 'Contents/settings.xml', 'Contents/section0.xml', 'Contents/section1.xml', 'version.xml']) {
+    expect(version).toContain('targetApplication="WORDPROCESSOR"');
+    expect(version).toContain('http://www.hancom.co.kr/hwpml/2011/version');
+    expect(header).toContain('<hh:borderFill id="1"');
+    expect(header).toContain('borderFillIDRef="2"');
+    await expect(validateHwpxPackage(blob)).resolves.toBeUndefined();
+    for (const path of ['META-INF/container.xml', 'META-INF/manifest.xml', 'Contents/content.hpf', 'Contents/header.xml', 'settings.xml', 'Contents/section0.xml', 'Contents/section1.xml', 'version.xml']) {
       const source = await zip.file(path)!.async('text');
       expect(new DOMParser().parseFromString(source, 'application/xml').querySelector('parsererror'), path).toBeNull();
     }
+  });
+
+  it('rejects the formerly emitted corrupt HWPX version contract before download', async () => {
+    const valid = await buildHwpxBlob(createDocument());
+    const zip = await JSZip.loadAsync(valid);
+    zip.file('version.xml', '<?xml version="1.0"?><hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/app" targetApplication="WORDPROC"/>');
+    const broken = await zip.generateAsync({ type: 'blob' });
+    await expect(validateHwpxPackage(broken)).rejects.toThrow('HWPX 호환성 검증 실패');
   });
 });
 
