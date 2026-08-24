@@ -110,4 +110,18 @@ describe('local-first typing performance', () => {
     expect(result.current.document.pages[0].textFlow).toEqual(flow('오프라인에서도 계속 입력'));
     expect(result.current.saveStatus).toBe('dirty');
   });
+
+  it('opens a persisted recent document without marking it changed or scheduling another save', () => {
+    const persisted = createDocument();
+    persisted.name = '저장된 문서';
+    persisted.updatedAt = '2026-08-25T00:00:00.000Z';
+    const { result } = renderHook(() => useDocumentState());
+    act(() => { result.current.loadDocument(persisted); vi.advanceTimersByTime(10_000); });
+    expect(result.current.document.name).toBe('저장된 문서');
+    expect(result.current.saveStatus).toBe('saved');
+    expect(result.current.canUndoDocument).toBe(false);
+    expect(storage.markSaved).toHaveBeenCalledTimes(1);
+    expect(storage.markDirty).not.toHaveBeenCalled();
+    expect(storage.saveDocument).not.toHaveBeenCalled();
+  });
 });

@@ -1,10 +1,12 @@
 'use client';
 
 import { Download, FileCode2, FileJson2, FileText, Printer, X } from 'lucide-react';
+import { useDialogBehavior } from '../hooks/use-dialog-behavior';
 
 type ExportType = 'pdf' | 'png' | 'hwpx' | 'docx' | 'odt' | 'rtf' | 'markdown' | 'txt' | 'html' | 'source' | 'print';
 
 export function ExportDialog({ open, busy, message, fontFamilies, onClose, onExport }: { open: boolean; busy: boolean; message: string; fontFamilies: string[]; onClose: () => void; onExport: (type: ExportType) => void }) {
+  const dialogRef = useDialogBehavior(open, onClose, !busy);
   if (!open) return null;
   const items: Array<{ id: ExportType; label: string; detail: string; icon: React.ReactNode }> = [
     { id: 'hwpx', label: 'HWPX 기본 문서', detail: '본문·표와 앱 개체 왕복 정보를 저장', icon: <FileText /> },
@@ -19,7 +21,7 @@ export function ExportDialog({ open, busy, message, fontFamilies, onClose, onExp
     { id: 'source', label: '우리의 AI 한글 원본', detail: '사진·첨부를 원본 바이트로 담는 OAH', icon: <FileJson2 /> },
     { id: 'print', label: '인쇄 미리보기', detail: '브라우저 인쇄 설정에서 확인', icon: <Printer /> },
   ];
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section className="dialog export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section ref={dialogRef} tabIndex={-1} className="dialog export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
     <header><div><span className="dialog-icon"><Download size={20} /></span><span><h2 id="export-title">문서 내보내기</h2><p>상단은 가장 많이 쓰는 워드프로세서 형식입니다.</p></span></div><button type="button" onClick={onClose} disabled={busy} aria-label="내보내기 닫기"><X /></button></header>
     <div className="export-grid">{items.map((item) => <button type="button" key={item.id} disabled={busy} onClick={() => onExport(item.id)}><span>{item.icon}</span><span><strong>{item.label}</strong><small>{item.detail}</small></span></button>)}</div>
     <aside className="font-compatibility-note"><strong>글꼴·호환 안내</strong><p>이 문서에서 사용하는 글꼴: {fontFamilies.join(', ') || '기본 글꼴'}</p><small>OAH·DOCX·HWPX에는 업로드한 사진의 원본 바이트를 재압축 없이 보존합니다. PDF도 JPEG 변환 없이 무손실 PNG 페이지와 원본 사진 데이터를 사용합니다. DOCX는 머리말·꼬리말·쪽 번호·표·사진을 표준 요소로 저장하고 글상자는 편집 가능한 표 상자로 변환합니다.</small><small>HWPX 표는 편집 가능한 표로 저장하며 사진·글상자의 정확한 위치는 우리의 AI 한글 왕복 정보로 보존합니다. 다른 컴퓨터에 글꼴이 없으면 대체될 수 있고, 외부 프로그램의 자유 배치 해석은 달라질 수 있습니다.</small></aside>

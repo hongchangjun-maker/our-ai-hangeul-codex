@@ -46,7 +46,7 @@ import { DEFAULT_FAVORITE_FONT_FAMILIES, DEFAULT_FONT_FAMILY, ENGLISH_FONTS, KOR
 import { WindowModeControls } from './WindowModeControls';
 
 function ToolButton({ label, children, onClick, active, disabled }: { label: string; children: React.ReactNode; onClick?: () => void; active?: boolean; disabled?: boolean }) {
-  return <button className={active ? 'tool-button active' : 'tool-button'} type="button" onClick={onClick} disabled={disabled} aria-label={label} title={label}>{children}</button>;
+  return <button className={active ? 'tool-button active' : 'tool-button'} type="button" onClick={onClick} disabled={disabled} aria-label={label} aria-pressed={typeof active === 'boolean' ? active : undefined} title={label}>{children}</button>;
 }
 
 export function EditorChrome({
@@ -170,7 +170,7 @@ export function EditorChrome({
   const textTools = <>
     <div className="quick-fonts" aria-label="자주 쓰는 글꼴">
       <span>바로 쓰기</span>
-      {quickFonts.map((family) => <button key={family} className={selectedFont === family ? 'quick-font-button active' : 'quick-font-button'} type="button" style={{ fontFamily: family }} onClick={() => applyFont(family)} aria-label={`${fontLabel(family)} 글꼴 적용`}>{fontLabel(family)}</button>)}
+      {quickFonts.map((family) => <button key={family} className={selectedFont === family ? 'quick-font-button active' : 'quick-font-button'} type="button" style={{ fontFamily: family }} onClick={() => applyFont(family)} aria-label={`${fontLabel(family)} 글꼴 적용`} aria-pressed={selectedFont === family}>{fontLabel(family)}</button>)}
       <button className="quick-font-more" type="button" onClick={onFontLibrary}>전체 글꼴</button>
     </div>
     <span className="divider" />

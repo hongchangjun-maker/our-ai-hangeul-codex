@@ -3,6 +3,7 @@
 import { Bot, CheckCircle2, KeyRound, Loader2, LockKeyhole, Save, Server, Settings, ShieldCheck, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { DEFAULT_FONT_FAMILY, ENGLISH_FONTS, KOREAN_FONTS } from '../font-catalog';
+import { useDialogBehavior } from '../hooks/use-dialog-behavior';
 
 interface ModelInfo {
   id: string;
@@ -33,6 +34,7 @@ export function AdminDialog({ open, onClose }: { open: boolean; onClose: () => v
   const [settings, setSettings] = useState<AdminSettings>(initialSettings);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [busy, setBusy] = useState(false);
+  const dialogRef = useDialogBehavior(open, onClose, !busy);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -89,7 +91,7 @@ export function AdminDialog({ open, onClose }: { open: boolean; onClose: () => v
     finally { setBusy(false); }
   };
 
-  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section className="dialog admin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-title">
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section ref={dialogRef} tabIndex={-1} className="dialog admin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-title">
     <header><div><span className="dialog-icon"><Settings size={20} /></span><span><h2 id="admin-title">관리자 설정</h2><p>서버 측 AI와 기본 편집 환경을 관리합니다.</p></span></div><button type="button" onClick={onClose} disabled={busy} aria-label="관리자 닫기"><X /></button></header>
     {!configured && <div className="admin-blocked"><Server size={28} /><h3>관리자 보안 설정이 필요합니다</h3><p><code>ADMIN_PASSWORD_HASH</code>와 <code>SESSION_SECRET</code>을 서버 비밀값으로 설정해야 합니다. 비밀번호는 브라우저 코드에 포함되지 않습니다.</p></div>}
     {configured && !authenticated && <form className="admin-login" onSubmit={login}><span className="admin-lock"><LockKeyhole size={28} /></span><h3>관리자 인증</h3><p>초기 임시 비밀번호 또는 변경한 관리자 비밀번호를 입력하세요.</p><label>관리자 비밀번호<input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" minLength={4} maxLength={128} /></label><button className="primary-action" type="submit" disabled={busy || password.length < 4}>{busy ? <Loader2 className="spin" size={17} /> : <ShieldCheck size={17} />} 확인</button></form>}

@@ -2,14 +2,16 @@
 
 import { FileText, X } from 'lucide-react';
 import type { EditorDocument } from '../../domain/document';
+import { useDialogBehavior } from '../hooks/use-dialog-behavior';
 
 export function PageSetupDialog({ open, document, currentPage, onChange, onClose }: { open: boolean; document: EditorDocument; currentPage: number; onChange: (document: EditorDocument) => void; onClose: () => void }) {
+  const dialogRef = useDialogBehavior(open, onClose);
   if (!open) return null;
   const page = document.pages[currentPage]; const numbering = document.settings.pageNumber;
   const updatePage = (patch: Partial<typeof page>) => onChange({ ...document, pages: document.pages.map((item, index) => index === currentPage ? { ...item, ...patch } : item) });
   const updateAll = (field: 'header' | 'footer', value: string) => onChange({ ...document, pages: document.pages.map((item) => ({ ...item, [field]: value })) });
   const updateNumber = (patch: Partial<typeof numbering>) => onChange({ ...document, settings: { ...document.settings, pageNumber: { ...numbering, ...patch } } });
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="dialog compact-dialog" role="dialog" aria-modal="true" aria-labelledby="page-setup-title">
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} tabIndex={-1} className="dialog compact-dialog" role="dialog" aria-modal="true" aria-labelledby="page-setup-title">
     <header><div><span className="dialog-icon"><FileText size={20} /></span><span><h2 id="page-setup-title">머리말·꼬리말과 쪽 번호</h2><p>화면, 인쇄, PDF와 Office 내보내기에 적용됩니다.</p></span></div><button type="button" onClick={onClose} aria-label="닫기"><X /></button></header>
     <div className="dialog-form"><label>현재 쪽 머리말<input value={page.header ?? ''} maxLength={300} onChange={(event) => updatePage({ header: event.target.value })} /></label><button className="secondary-action" type="button" onClick={() => updateAll('header', page.header ?? '')}>모든 쪽에 같은 머리말</button>
       <label>현재 쪽 꼬리말<input value={page.footer ?? ''} maxLength={300} onChange={(event) => updatePage({ footer: event.target.value })} /></label><button className="secondary-action" type="button" onClick={() => updateAll('footer', page.footer ?? '')}>모든 쪽에 같은 꼬리말</button>

@@ -13,7 +13,7 @@ import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { AlertTriangle, FileCheck2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { applyDocumentStylePreset, createPage, defaultMarginsForPreset, documentStylePreset, duplicatePage, MAX_DOCUMENT_PAGES, migrateDocument, type DocumentObject, type DocumentStyleId, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
+import { applyDocumentStylePreset, createDocument, createPage, defaultMarginsForPreset, documentStylePreset, duplicatePage, MAX_DOCUMENT_PAGES, migrateDocument, type DocumentObject, type DocumentStyleId, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
 import { fitPageObjects, pageGeometry } from '../domain/geometry';
 import { collectDocumentFontFamilies, documentToText } from '../infrastructure/export-service';
 import { importFile } from '../infrastructure/file-import';
@@ -34,6 +34,7 @@ import { printWithOriginalImages, useDocumentExport } from './hooks/use-document
 import { useDocumentState } from './hooks/use-document'; import { useTypingPerformanceProbe } from './hooks/use-typing-performance-probe';
 import { useAppDefaults } from './hooks/use-app-defaults'; import { useShareLinkLaunch } from './hooks/use-share-link-launch';
 import { useViewportZoom } from './hooks/use-viewport-zoom'; import { useClipboardImages } from './hooks/use-clipboard-images'; import { usePageViewMode } from './hooks/use-page-view-mode';
+import { useEditorContentTransition } from './hooks/use-editor-content-transition';
 import { rowsToTable } from './table-utils';
 function paragraphsFromText(text: string): RichTextDocument {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -83,7 +84,7 @@ export function EditorApp() {
   const textActionAt = useRef(0);
   const documentActionAt = useRef(0);
   const pageIdRef = useRef(''); const composingRef = useRef(false);
-
+  const { activeRef: editorContentTransitionRef, replace: replaceEditorPageContent } = useEditorContentTransition();
   const editor = useEditor({
     immediatelyRender: false, shouldRerenderOnTransaction: false,
     extensions: [
@@ -105,6 +106,7 @@ export function EditorApp() {
       compositionstart() { composingRef.current = true; store.flushEditorUpdates(); return false; }, compositionend(view) { composingRef.current = false; queueMicrotask(() => { store.bufferEditorPage(currentPageRef.current, view.state.doc.toJSON() as RichTextDocument); store.flushEditorUpdates(); }); return false; }, blur() { store.flushEditorUpdates(); return false; },
     } },
     onUpdate({ editor: activeEditor }) {
+      if (editorContentTransitionRef.current) return;
       textActionAt.current = Date.now();
       if (composingRef.current) return;
       store.bufferEditorPage(currentPageRef.current, activeEditor.getJSON() as RichTextDocument);
@@ -113,28 +115,23 @@ export function EditorApp() {
       setSelectionText(from === to ? '' : activeEditor.state.doc.textBetween(from, to, '\n').slice(0, 20_000));
     },
   });
-
-  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]); const selectPage = (pageIndex: number) => { store.flushEditorUpdates(); currentPageRef.current = pageIndex; setCurrentPage(pageIndex); };
+  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]); const selectPage = (pageIndex: number) => { store.flushEditorUpdates(); currentPageRef.current = pageIndex; setSelectionText(''); setCurrentPage(pageIndex); };
   useEffect(() => {
     const page = store.document.pages[currentPage];
     if (!editor || !page) return;
     const pageChanged = pageIdRef.current !== page.id;
     if (!pageChanged && (editor.isFocused || JSON.stringify(editor.getJSON()) === JSON.stringify(page.textFlow))) return;
-    pageIdRef.current = page.id; editor.commands.setContent(page.textFlow as JSONContent, { emitUpdate: false });
-    if (pageChanged) setSelectedObjectId(null);
-  }, [currentPage, editor, store.document.pages]);
-
+    pageIdRef.current = page.id; replaceEditorPageContent(editor, page.textFlow);
+    if (pageChanged) { setSelectionText(''); setSelectedObjectId(null); }
+  }, [currentPage, editor, replaceEditorPageContent, store.document.pages]);
   useEffect(() => { try { localStorage.setItem(pageLayoutScopeStorageKey, pageLayoutScope); } catch { /* localStorage unavailable */ }
   }, [pageLayoutScope]);
-
   useEffect(() => {
     try { localStorage.setItem(pageGuidesStorageKey, String(showPageGuides)); } catch { /* localStorage unavailable */ }
   }, [showPageGuides]);
-
   useEffect(() => {
     if (screen === 'welcome') void listRecentDocuments().then(setRecent).catch(() => setRecent([]));
   }, [screen, store.lastSavedAt]);
-
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(null), 3500);
@@ -142,19 +139,22 @@ export function EditorApp() {
   }, [toast]);
 
   const createNew = (templateId = 'blank') => {
-    store.createNew(templateId, appDefaults);
-    pageIdRef.current = '';
-    setCurrentPage(0); setSelectedObjectId(null); setAiOpen(false); setScreen('editor');
+    const nextDocument = createDocument(templateId, appDefaults);
+    currentPageRef.current = 0;
+    pageIdRef.current = nextDocument.pages[0].id;
+    replaceEditorPageContent(editor, nextDocument.pages[0].textFlow);
+    store.replaceDocument(nextDocument);
+    setCurrentPage(0); setSelectionText(''); setSelectedObjectId(null); setAiOpen(false); setScreen('editor');
   };
 
-  const openDocument = (nextDocument: EditorDocument) => {
+  const openDocument = (nextDocument: EditorDocument, persisted = false) => {
     try {
       const migrated = migrateDocument(nextDocument);
       currentPageRef.current = 0;
       pageIdRef.current = migrated.pages[0].id;
-      editor?.commands.setContent(migrated.pages[0].textFlow as JSONContent, { emitUpdate: false });
-      store.replaceDocument(migrated);
-      setCurrentPage(0); setSelectedObjectId(null); setScreen('editor'); store.dismissRecovery();
+      replaceEditorPageContent(editor, migrated.pages[0].textFlow);
+      if (persisted) store.loadDocument(migrated); else store.replaceDocument(migrated);
+      setCurrentPage(0); setSelectionText(''); setSelectedObjectId(null); setScreen('editor'); store.dismissRecovery();
     } catch (reason) { setToast({ type: 'error', message: reason instanceof Error ? reason.message : '문서를 열지 못했습니다.' }); }
   };
 
@@ -341,7 +341,7 @@ export function EditorApp() {
   const saveLabel = store.saveStatus === 'saving' ? '저장 중…' : store.saveStatus === 'dirty' ? '변경됨' : store.saveStatus === 'error' ? '저장 오류' : store.lastSavedAt ? `${store.lastSavedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 저장` : '로컬 저장 준비';
 
   if (screen === 'welcome') return <>
-    <WelcomeScreen recent={recent} interrupted={store.interrupted} onCreate={createNew} onOpen={openDocument} onFile={(files) => { createNew(); setTimeout(() => void handleFiles(files, 0), 0); }} onAdmin={() => setAdminOpen(true)} />
+    <WelcomeScreen recent={recent} interrupted={store.interrupted} onCreate={createNew} onOpen={(document) => openDocument(document, true)} onFile={(files) => { createNew(); setTimeout(() => void handleFiles(files, 0), 0); }} onAdmin={() => setAdminOpen(true)} />
     {store.interrupted && store.recoveryCandidate && <div className="recovery-banner" role="dialog" aria-label="이전 작업 복구"><AlertTriangle size={21} /><span><strong>이전 작업을 복구할까요?</strong><small>{store.recoveryCandidate.name} · {new Date(store.recoveryCandidate.updatedAt).toLocaleString('ko-KR')}</small></span><button type="button" onClick={() => openDocument(store.recoveryCandidate!)}><FileCheck2 size={16} /> 복구</button><button type="button" className="icon-button" onClick={store.dismissRecovery} aria-label="복구 알림 닫기"><X size={16} /></button></div>}
     <AdminDialog open={adminOpen} onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} />
   </>;
@@ -363,7 +363,7 @@ export function EditorApp() {
       onRedo={redo}
       onSave={() => void store.saveNow()}
       onFiles={(files) => void handleFiles(files)}
-      onNewDocument={() => setScreen('welcome')}
+      onNewDocument={() => { store.flushEditorUpdates(); void store.saveNow(); setSelectionText(''); setScreen('welcome'); }}
       onAddPage={() => addPage()}
       onDuplicatePage={duplicateCurrentPage}
       onDeletePage={deleteCurrentPage}
@@ -422,7 +422,7 @@ export function EditorApp() {
     <FontLibraryDialog open={fontLibraryOpen} favoriteFonts={favoriteFonts} onClose={() => setFontLibraryOpen(false)} onToggleFavorite={toggleFavoriteFont} onApply={applyFontFromLibrary} />
     <PageSetupDialog open={pageSetupOpen} document={store.document} currentPage={currentPage} onChange={store.replaceDocument} onClose={() => setPageSetupOpen(false)} />
     <ReviewDialog open={reviewOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setReviewOpen(false)} />
-    <CloudSyncDialog key={`cloud-${store.document.id}`} open={cloudOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setCloudOpen(false)} />
+    <CloudSyncDialog key={`cloud-${store.document.id}`} open={cloudOpen} document={store.document} onChange={(document) => { const nextPage = Math.min(currentPageRef.current, document.pages.length - 1); currentPageRef.current = nextPage; pageIdRef.current = ''; setSelectionText(''); setCurrentPage(nextPage); store.replaceDocument(document); }} onClose={() => setCloudOpen(false)} />
     <AdminDialog open={adminOpen} onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} />
     {toast && <div className={`toast ${toast.type}`} role="status"><span>{toast.message}</span><button type="button" onClick={() => setToast(null)} aria-label="알림 닫기"><X size={15} /></button></div>}
   </main>;

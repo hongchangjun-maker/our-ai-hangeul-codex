@@ -113,7 +113,19 @@ export function useDocumentState() {
     recoveryState.markDirty();
   }, [clearEditorTimers]);
 
-  const createNew = useCallback((templateId = 'blank', defaults?: { defaultFont?: string; autosaveDelayMs?: number }) => replaceDocument(createDocument(templateId, defaults)), [replaceDocument]);
+  const loadDocument = useCallback((next: EditorDocument) => {
+    clearEditorTimers();
+    pendingText.current.clear();
+    const migrated = migrateDocument(next);
+    past.current = [];
+    future.current = [];
+    setHistoryState({ canUndo: false, canRedo: false });
+    currentRef.current = migrated;
+    setDocumentState(migrated);
+    setSaveStatus('saved');
+    setLastSavedAt(new Date(migrated.updatedAt));
+    recoveryState.markSaved();
+  }, [clearEditorTimers]);
 
   const undoDocument = useCallback(() => {
     materializeEditorText(false);
@@ -193,7 +205,7 @@ export function useDocumentState() {
     bufferEditorPage,
     flushEditorUpdates,
     replaceDocument,
-    createNew,
+    loadDocument,
     undoDocument,
     redoDocument,
     beginTransaction,
