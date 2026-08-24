@@ -31,6 +31,22 @@ describe('word document format boundary', () => {
     expect(importedText(await importFile(file))).toContain('DOCX 문서 본문');
   });
 
+  it('restores Word page markers and keeps an embedded picture on its original page', async () => {
+    const zip = new JSZip();
+    zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body><w:p><w:r><w:t>첫째 쪽</w:t><w:br w:type="page"/><w:lastRenderedPageBreak/><w:t>둘째 쪽</w:t><w:drawing><wp:inline><wp:extent cx="952500" cy="476250"/><wp:docPr id="1" name="둘째 쪽 그림"/><a:graphic><a:graphicData><a:blip r:embed="rId1"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`);
+    zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>');
+    zip.file('word/media/image1.png', new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+    const file = new File([await zip.generateAsync({ type: 'blob' })], 'pages.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const result = await importFile(file);
+    expect(result.kind).toBe('document');
+    if (result.kind !== 'document') return;
+    expect(result.document.pages).toHaveLength(2);
+    expect(JSON.stringify(result.document.pages[0].textFlow)).toContain('첫째 쪽');
+    expect(JSON.stringify(result.document.pages[1].textFlow)).toContain('둘째 쪽');
+    expect(result.document.pages[0].objects).toHaveLength(0);
+    expect(result.document.pages[1].objects[0]).toMatchObject({ type: 'image', name: '둘째 쪽 그림' });
+  });
+
   it('imports a standards-shaped HWPX text section', async () => {
     const zip = new JSZip();
     zip.file('mimetype', 'application/hwp+zip');

@@ -10,7 +10,7 @@ export type ImportResult =
   | { kind: 'image'; object: DocumentObject }
   | { kind: 'text'; text: string }
   | { kind: 'table'; rows: string[][] }
-  | { kind: 'document'; document: EditorDocument }
+  | { kind: 'document'; document: EditorDocument; notice?: string }
   | { kind: 'attachment'; object: DocumentObject; notice?: string };
 
 function extensionOf(name: string) {
@@ -67,7 +67,11 @@ export async function importFile(file: File, position = { x: 90, y: 120 }): Prom
   }
 
   if ((WORD_IMPORT_EXTENSIONS as readonly string[]).includes(extension)) {
-    return { kind: 'document', document: await importWordDocument(file, extension) };
+    const document = await importWordDocument(file, extension);
+    const notice = extension === 'docx'
+      ? `Word 저장 기준으로 ${document.pages.length}쪽을 복원했습니다. 특수 글꼴·도형 효과는 편집 가능한 기본 요소로 바뀔 수 있습니다.`
+      : undefined;
+    return { kind: 'document', document, notice };
   }
 
   if (['hwp', 'doc'].includes(extension)) {

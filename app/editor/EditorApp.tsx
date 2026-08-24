@@ -172,7 +172,7 @@ export function EditorApp() {
     for (let index = 0; index < array.length; index += 1) {
       try {
         const result = await importFile(array[index], { x: position.x + index * 14, y: position.y + index * 14 });
-        if (result.kind === 'document') { openDocument(result.document); continue; }
+        if (result.kind === 'document') { openDocument(result.document); if (result.notice) setToast({ type: 'info', message: result.notice }); continue; }
         if (result.kind === 'text') {
           const nodes = paragraphsFromText(result.text).content ?? [];
           if (pageIndex !== currentPageRef.current) setCurrentPage(pageIndex);

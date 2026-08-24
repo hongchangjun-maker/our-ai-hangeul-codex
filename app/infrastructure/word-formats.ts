@@ -1,5 +1,6 @@
 import { createDocument, createPage, type DocumentObject, type EditorDocument, type RichTextDocument } from '../domain/document';
 import { storeAsset } from './local-storage';
+import { importDocxDocument } from './docx-import';
 
 const MAX_OFFICE_BYTES = 25 * 1024 * 1024;
 const MAX_XML_TEXT_BYTES = 8 * 1024 * 1024;
@@ -89,22 +90,6 @@ async function zipTextEntries(file: File, required: (name: string) => boolean) {
   return { zip, entries: output };
 }
 
-async function docxTextFlow(file: File) {
-  const mammothModule = await import('mammoth');
-  const mammoth = mammothModule.default ?? mammothModule;
-  const arrayBuffer = await file.arrayBuffer();
-  const nodeRuntime = (globalThis as typeof globalThis & { process?: { versions?: { node?: string } } }).process?.versions?.node;
-  const source = nodeRuntime ? { buffer: Buffer.from(arrayBuffer) } : { arrayBuffer };
-  const converted = await mammoth.convertToHtml(source, { ignoreEmptyParagraphs: false, convertImage: mammoth.images.imgElement(async (image) => ({ src: `data:${image.contentType};base64,${await image.read('base64')}` })) });
-  const parsed = new DOMParser().parseFromString(converted.value, 'text/html'); const objects: DocumentObject[] = [];
-  for (const [index, image] of Array.from(parsed.querySelectorAll('img')).entries()) {
-    const match = /^data:([^;,]+);base64,(.+)$/i.exec(image.src); if (!match) continue;
-    const bytes = Uint8Array.from(atob(match[2]), (character) => character.charCodeAt(0)); const stored = await storeAsset(new Blob([bytes], { type: match[1] }), image.alt || `DOCX 이미지 ${index + 1}`, match[1]);
-    objects.push({ id: crypto.randomUUID(), type: 'image', x: 90, y: 130 + index * 28, width: 260, height: 180, rotation: 0, zIndex: 10 + index, locked: false, opacity: 1, assetId: stored.id, name: image.alt || `DOCX 이미지 ${index + 1}`, mediaType: match[1], size: bytes.byteLength });
-  }
-  return { textFlow: htmlTextFlow(converted.value), objects };
-}
-
 async function hwpxTextFlow(file: File) {
   const { zip, entries } = await zipTextEntries(file, (name) => /^Contents\/section\d+\.xml$/i.test(name));
   const mimetype = await zip.file('mimetype')?.async('text');
@@ -161,8 +146,7 @@ export const WORD_IMPORT_EXTENSIONS = ['hwpx', 'docx', 'odt', 'rtf', 'html', 'ht
 export async function importWordDocument(file: File, extension: string) {
   if (file.size > MAX_OFFICE_BYTES) throw new Error('문서 파일은 25MB 이하만 가져올 수 있습니다.');
   if (extension === 'docx') {
-    const imported = await docxTextFlow(file); const base = importedDocument(file.name, imported.textFlow);
-    return restoreObjectMetadata(file, extension, { ...base, pages: [{ ...base.pages[0], objects: imported.objects }] });
+    return restoreObjectMetadata(file, extension, await importDocxDocument(file));
   }
   const textFlow = extension === 'hwpx' ? await hwpxTextFlow(file)
       : extension === 'odt' ? await odtTextFlow(file)
