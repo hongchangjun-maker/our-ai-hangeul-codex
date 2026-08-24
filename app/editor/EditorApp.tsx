@@ -151,8 +151,11 @@ export function EditorApp() {
 
   const openDocument = (nextDocument: EditorDocument) => {
     try {
-      store.replaceDocument(migrateDocument(nextDocument));
-      pageIdRef.current = '';
+      const migrated = migrateDocument(nextDocument);
+      currentPageRef.current = 0;
+      pageIdRef.current = migrated.pages[0].id;
+      editor?.commands.setContent(migrated.pages[0].textFlow as JSONContent, { emitUpdate: false });
+      store.replaceDocument(migrated);
       setCurrentPage(0); setSelectedObjectId(null); setScreen('editor'); store.dismissRecovery();
     } catch (reason) { setToast({ type: 'error', message: reason instanceof Error ? reason.message : '문서를 열지 못했습니다.' }); }
   };

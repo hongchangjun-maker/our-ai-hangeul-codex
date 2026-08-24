@@ -1,4 +1,4 @@
-import { Document, Packer, Paragraph } from 'docx';
+import { Document, Packer, PageBreak, Paragraph } from 'docx';
 import JSZip from 'jszip';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { createDocument, createPage } from '../app/domain/document';
@@ -45,6 +45,17 @@ describe('word document format boundary', () => {
     expect(JSON.stringify(result.document.pages[1].textFlow)).toContain('둘째 쪽');
     expect(result.document.pages[0].objects).toHaveLength(0);
     expect(result.document.pages[1].objects[0]).toMatchObject({ type: 'image', name: '둘째 쪽 그림' });
+  });
+
+  it('keeps text before and after a page-break-only paragraph', async () => {
+    const docx = new Document({ sections: [{ children: [new Paragraph('첫째 쪽 보존'), new Paragraph({ children: [new PageBreak()] }), new Paragraph('둘째 쪽 보존')] }] });
+    const file = new File([await Packer.toBlob(docx)], 'separate-break.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const result = await importFile(file);
+    expect(result.kind).toBe('document');
+    if (result.kind !== 'document') return;
+    expect(result.document.pages).toHaveLength(2);
+    expect(JSON.stringify(result.document.pages[0].textFlow)).toContain('첫째 쪽 보존');
+    expect(JSON.stringify(result.document.pages[1].textFlow)).toContain('둘째 쪽 보존');
   });
 
   it('imports a standards-shaped HWPX text section', async () => {
