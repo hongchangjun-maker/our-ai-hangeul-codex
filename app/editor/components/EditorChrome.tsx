@@ -259,7 +259,7 @@ export function EditorChrome({
       </>}
       {menu === '표' && tableTools}
       {menu === '페이지' && <>
-        <button className="label-tool" type="button" onClick={onPageSetup}><FileText size={17} /> 머리말·꼬리말 / 쪽 번호</button>
+        <button className="label-tool" type="button" onClick={onPageSetup}><FileText size={17} /> 용지·여백 / 머리말·쪽 번호</button>
         <button className="label-tool" type="button" onClick={onAddPage}><FilePlus2 size={17} /> 페이지 추가</button>
         <button className="label-tool" type="button" onClick={onDuplicatePage}><Columns3 size={17} /> 현재 쪽 복제</button>
         <button className="label-tool danger" type="button" onClick={onDeletePage} disabled={pageCount <= 1}><Trash2 size={17} /> 현재 쪽 삭제</button>
