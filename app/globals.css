@@ -132,6 +132,9 @@ select.select-tool, select.size-tool, .line-height-tool { appearance: auto; }
 .page-thumb-list { display:flex;flex-direction:column;gap:7px;max-height:calc(100vh - 240px);overflow:auto; }
 .canvas-area { position: relative; }
 .page-stack { display: flex; flex-direction: column; align-items: center; gap: 68px; min-width: min-content; }
+.page-stack.single { gap: 0; }
+.page-separator { position:relative;align-self:stretch;flex:0 0 68px;width:100%;height:68px;pointer-events:none; }
+.page-separator::before { content:'';position:absolute;inset:18px 0;border-top:1px solid rgba(255,255,255,.16);border-bottom:1px solid rgba(4,27,35,.32);background:rgba(7,38,49,.34);box-shadow:inset 0 7px 14px rgba(4,27,35,.18),inset 0 -7px 14px rgba(255,255,255,.035); }
 .paper-wrapper { position: relative; flex: 0 0 auto; }
 .paper-wrapper:not(.current) .paper { content-visibility:auto;contain-intrinsic-block-size:var(--paper-height); }
 .virtual-page-placeholder { position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:10px;color:#78918a;background:linear-gradient(145deg,rgba(250,252,251,.98),rgba(239,246,243,.96));text-align:center;pointer-events:none; }
@@ -183,7 +186,7 @@ select.select-tool, select.size-tool, .line-height-tool { appearance: auto; }
 @media print {
   @page { margin: 0; }
   body { background:#fff!important; }
-  .modal-backdrop,.toast,.recovery-banner,.active-frame-size,.object-handle,.object-context-menu,.smart-guide { display:none!important; }
+  .modal-backdrop,.toast,.recovery-banner,.active-frame-size,.object-handle,.object-context-menu,.smart-guide,.page-separator { display:none!important; }
   .page-stack { display:block;padding:0; }
   .paper-wrapper { width:var(--paper-width)!important;height:var(--paper-height)!important;page-break-after:always;break-after:page;box-shadow:none; }
   .paper { position:relative!important;transform:none!important;box-shadow:none!important;overflow:hidden!important;width:var(--paper-width)!important;min-height:var(--paper-height)!important; }
@@ -193,7 +196,7 @@ select.select-tool, select.size-tool, .line-height-tool { appearance: auto; }
   .free-text-box { border-color:transparent!important; }
 }
 
-.document-output-mode .active-frame-size,.document-output-mode .object-handle,.document-output-mode .object-context-menu,.document-output-mode .smart-guide,.document-output-mode .page-activate-overlay { display:none!important; }
+.document-output-mode .active-frame-size,.document-output-mode .object-handle,.document-output-mode .object-context-menu,.document-output-mode .smart-guide,.document-output-mode .page-activate-overlay,.document-output-mode .page-separator { display:none!important; }
 .document-output-mode .document-object { outline:none!important; }
 .document-output-mode .document-object.locked::after { display:none!important; }
 .document-output-mode .free-text-box { border-color:transparent!important; }
@@ -352,7 +355,7 @@ select.select-tool, select.size-tool, .line-height-tool { appearance: auto; }
   .editor-top-pill,.editor-left-rail,.tool-drawer,.floating-quick-tools,.status-pill,.collaboration-dock { display:none!important; }
   .editor-shell > .workspace { position:static;display:block; }
   .page-stack.spread { display:block!important; }
-  .page-activate-overlay { display:none!important; }
+  .page-activate-overlay,.page-separator { display:none!important; }
   .page-sheet-label { display:none!important; }
   .paper-wrapper { width:var(--paper-width)!important;height:var(--paper-height)!important;outline:0;box-shadow:none; }
   .paper { transform:none!important; }

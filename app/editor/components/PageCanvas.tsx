@@ -246,7 +246,8 @@ export function PageCanvas({
           const pageScale = fittedScale(page);
           const padding = `${mmToPx(page.margins.top)}px ${mmToPx(page.margins.right)}px ${mmToPx(page.margins.bottom)}px ${mmToPx(page.margins.left)}px`;
           const virtual = shouldVirtualizePage(document.pages.length, currentPage, index, renderAllPages);
-          return <div className={index === currentPage ? 'paper-wrapper current' : 'paper-wrapper'} key={page.id} style={{ width: geometry.widthPx * pageScale, height: geometry.heightPx * pageScale, '--paper-width': `${geometry.widthPx}px`, '--paper-height': `${geometry.heightPx}px` } as React.CSSProperties}>
+          return <Fragment key={page.id}>
+          <div className={index === currentPage ? 'paper-wrapper current' : 'paper-wrapper'} style={{ width: geometry.widthPx * pageScale, height: geometry.heightPx * pageScale, '--paper-width': `${geometry.widthPx}px`, '--paper-height': `${geometry.heightPx}px` } as React.CSSProperties}>
           <span className="page-sheet-label" aria-hidden="true">{index + 1}쪽 · {page.preset} · {geometry.widthMm}×{geometry.heightMm}mm</span>
           <article className="paper exportable-page" data-page-index={index} data-page-width-mm={geometry.widthMm} data-page-height-mm={geometry.heightMm} aria-label={`${page.preset} 문서 ${index + 1}쪽, ${geometry.widthMm}×${geometry.heightMm}mm`} aria-current={index === currentPage ? 'page' : undefined} style={{ width: geometry.widthPx, height: geometry.heightPx, transform: `scale(${pageScale})`, background: page.background }} onClick={(event) => activatePage(index, { left: event.clientX, top: event.clientY })} onDrop={(event) => { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); onFiles(event.dataTransfer.files, index, { x: (event.clientX - rect.left) / pageScale, y: (event.clientY - rect.top) / pageScale }); }}>
             {index !== currentPage && <button className="page-activate-overlay" type="button" aria-label={`${index + 1}쪽 클릭하여 편집`} onClick={(event) => { event.stopPropagation(); activatePage(index, { left: event.clientX, top: event.clientY }); }} />}
@@ -274,7 +275,9 @@ export function PageCanvas({
               {index === currentPage ? <ObjectLayer objects={page.objects} pageWidth={geometry.widthPx} pageHeight={geometry.heightPx} displayScale={pageScale} selectedId={selectedObjectId} snapEnabled={document.settings.snapEnabled} guidesEnabled={document.settings.guidesEnabled} onSelect={onSelectObject} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} onChange={onObjectChange} onAction={onObjectAction} /> : <div className="object-layer read-only-layer">{page.objects.map((object) => <ReadOnlyObject key={object.id} object={object} displayScale={pageScale} />)}</div>}
             </>}
             </article>
-          </div>;
+          </div>
+          {pageViewMode === 'single' && index < document.pages.length - 1 ? <div className="page-separator" role="separator" aria-label={`${index + 1}쪽과 ${index + 2}쪽 사이`} data-page-break-after={index + 1} /> : null}
+          </Fragment>;
         })}
       </div>
     </div>
