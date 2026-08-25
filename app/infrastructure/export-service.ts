@@ -1,8 +1,8 @@
 import type { DocumentObject, EditorDocument, RichTextDocument } from '../domain/document';
+import { documentToText } from '../domain/document-content';
 import type { ParagraphChild, TextRun as DocxTextRun } from 'docx';
 import { pageGeometry } from '../domain/geometry';
 import { downloadBlob } from './download';
-import { buildHwpxBlob } from './hwpx-export';
 import { getAsset } from './local-storage';
 import { normalizedCrop } from '../domain/image-quality';
 
@@ -26,26 +26,6 @@ type RichTextNode = {
   content?: RichTextNode[];
 };
 
-function nodeFontFamilies(node: unknown, result: Set<string>) {
-  if (!node || typeof node !== 'object') return;
-  const value = node as RichTextNode;
-  for (const mark of value.marks ?? []) {
-    const family = mark.type === 'textStyle' ? mark.attrs?.fontFamily : undefined;
-    if (typeof family === 'string' && family) result.add(family);
-  }
-  value.content?.forEach((child) => nodeFontFamilies(child, result));
-}
-
-export function collectDocumentFontFamilies(document: EditorDocument) {
-  const families = new Set<string>([document.settings.defaultFont, document.settings.headingFont]);
-  document.pages.forEach((page) => nodeFontFamilies(page.textFlow, families));
-  return [...families].filter(Boolean);
-}
-
-export function documentToText(document: EditorDocument) {
-  return document.pages.map((page, index) => `${document.pages.length > 1 ? `[${index + 1}쪽]\n` : ''}${textFromNode(page.textFlow)}`.trim()).join('\n\n');
-}
-
 export async function buildSourceBlob(document: EditorDocument) {
   const { default: JSZip } = await import('jszip');
   const zip = new JSZip();
@@ -54,7 +34,7 @@ export async function buildSourceBlob(document: EditorDocument) {
   const assetIds = [...new Set(document.pages.flatMap((page) => page.objects.map((object) => object.assetId).filter((id): id is string => Boolean(id))))];
   for (const id of assetIds) {
     const asset = await getAsset(id);
-    if (asset) zip.file(`assets/${id}`, asset.blob, { compression: 'STORE' });
+    if (asset) zip.file(`assets/${id}`, await asset.blob.arrayBuffer(), { compression: 'STORE' });
   }
   zip.file('manifest.json', JSON.stringify({ format: 'our-ai-hangeul-source-v2', document: 'document.json', assets: assetIds }));
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
@@ -125,6 +105,7 @@ export async function exportOdt(document: EditorDocument) {
 }
 
 export async function exportHwpx(document: EditorDocument) {
+  const { buildHwpxBlob } = await import('./hwpx-export');
   downloadBlob(await buildHwpxBlob(document), `${safeName(document.name)}.hwpx`);
 }
 
@@ -145,7 +126,7 @@ function textRunsFromNode(node: RichTextNode, fallbackFont: string, TextRun: typ
     const color = textStyle?.attrs?.color;
     return [new TextRun({
       text: node.text ?? '',
-      font: typeof textStyle?.attrs?.fontFamily === 'string' ? textStyle.attrs.fontFamily : fallbackFont,
+      font: typeof textStyle?.attrs?.sourceFontFamily === 'string' ? textStyle.attrs.sourceFontFamily : typeof textStyle?.attrs?.fontFamily === 'string' ? textStyle.attrs.fontFamily : fallbackFont,
       bold: marks.some((mark) => mark.type === 'bold'),
       italics: marks.some((mark) => mark.type === 'italic'),
       strike: marks.some((mark) => mark.type === 'strike'),
@@ -172,6 +153,27 @@ function pageFieldRuns(document: EditorDocument, docx: typeof import('docx')) {
   return [current];
 }
 
+const EMU_PER_PX = 9_525;
+
+function utf8Base64(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  return btoa(binary);
+}
+
+function floatingObject(object: DocumentObject, docx: typeof import('docx')) {
+  return {
+    horizontalPosition: { relative: docx.HorizontalPositionRelativeFrom.PAGE, offset: Math.round(object.x * EMU_PER_PX) },
+    verticalPosition: { relative: docx.VerticalPositionRelativeFrom.PAGE, offset: Math.round(object.y * EMU_PER_PX) },
+    wrap: { type: docx.TextWrappingType.NONE },
+    allowOverlap: true,
+    behindDocument: object.zIndex < 0,
+    layoutInCell: false,
+    zIndex: object.zIndex,
+  };
+}
+
 export async function buildDocxBlob(document: EditorDocument) {
   const docx = await import('docx');
   const { Document, HeadingLevel, Packer, Paragraph, TextRun } = docx;
@@ -195,9 +197,20 @@ export async function buildDocxBlob(document: EditorDocument) {
       if (object.type === 'image' && object.assetId) {
         const asset = await getAsset(object.assetId);
         const imageType = asset?.mediaType === 'image/png' ? 'png' : asset?.mediaType === 'image/gif' ? 'gif' : asset?.mediaType === 'image/bmp' ? 'bmp' : asset?.mediaType === 'image/jpeg' ? 'jpg' : null;
-        if (asset && imageType) children.push(new Paragraph({ children: [new docx.ImageRun({ type: imageType, data: await asset.blob.arrayBuffer(), transformation: { width: Math.max(20, Math.round(object.width)), height: Math.max(20, Math.round(object.height)), flip: { horizontal: object.flipX, vertical: object.flipY }, rotation: object.rotation }, altText: { title: object.name || '삽입 이미지', description: object.name || '삽입 이미지', name: object.name || 'image' } })] }));
+        if (asset && imageType) children.push(new Paragraph({ children: [new docx.ImageRun({ type: imageType, data: await asset.blob.arrayBuffer(), transformation: { width: Math.max(20, Math.round(object.width)), height: Math.max(20, Math.round(object.height)), flip: { horizontal: object.flipX, vertical: object.flipY }, rotation: object.rotation }, floating: floatingObject(object, docx), altText: { title: object.name || '삽입 이미지', description: object.name || '삽입 이미지', name: object.name || 'image' } })] }));
       } else if (object.type === 'text-box') {
-        children.push(new docx.Table({ rows: [new docx.TableRow({ children: [new docx.TableCell({ shading: { fill: object.style?.background?.replace('#', '') || 'F7FAF9' }, children: [new Paragraph({ children: [new TextRun({ text: object.text || '', font: document.settings.defaultFont })] })] })] })], width: { size: Math.min(100, Math.max(15, Math.round((object.width / geometry.widthPx) * 100))), type: docx.WidthType.PERCENTAGE } }));
+        const shape = new docx.WpsShapeRun({
+          type: 'wps',
+          transformation: { width: Math.max(20, Math.round(object.width)), height: Math.max(20, Math.round(object.height)), rotation: object.rotation },
+          floating: floatingObject(object, docx),
+          solidFill: { type: 'rgb', value: object.style?.background?.replace('#', '') || 'FFFFFF' },
+          outline: object.style?.borderWidth === 0 ? { type: 'noFill' } : { type: 'solidFill', solidFillType: 'rgb', value: object.style?.borderColor?.replace('#', '') || '8EB8AD', width: Math.max(1, Math.round((object.style?.borderWidth ?? 1) * EMU_PER_PX)) },
+          children: [new Paragraph({ children: [new TextRun({ text: object.text || '', font: document.settings.defaultFont })] })],
+          bodyProperties: { margins: { top: 63_500, right: 63_500, bottom: 63_500, left: 63_500 } },
+          nonVisualProperties: { txBox: '1' },
+          altText: { title: object.name || '글상자', description: object.name || '글상자', name: object.name || 'textbox' },
+        });
+        children.push(new Paragraph({ children: [shape as unknown as import('docx').ParagraphChild] }));
       }
     }
     const alignment = document.settings.pageNumber.position.endsWith('right') ? docx.AlignmentType.RIGHT : docx.AlignmentType.CENTER;
@@ -221,12 +234,18 @@ export async function buildDocxBlob(document: EditorDocument) {
       children: children.length ? children : [new Paragraph({ children: [new TextRun({ text: '', font: document.settings.defaultFont })] })],
     };
   }));
-  const file = new Document({ sections });
+  const metadata = JSON.stringify({ format: 'our-ai-hangeul-objects-v2', settings: document.settings.pageNumber, pages: document.pages.map((page) => ({ header: page.header, footer: page.footer, objects: page.objects })) });
+  const file = new Document({ sections, customProperties: [{ name: 'OurAiDocumentV2', value: utf8Base64(metadata) }] });
   const base = await Packer.toBlob(file);
   const { default: JSZip } = await import('jszip');
-  const zip = await JSZip.loadAsync(base);
-  zip.file('customXml/our-ai-document.json', JSON.stringify({ format: 'our-ai-hangeul-objects-v1', pages: document.pages.map((page) => ({ objects: page.objects })) }));
-  for (const page of document.pages) for (const object of page.objects) if (object.assetId) { const asset = await getAsset(object.assetId); if (asset) zip.file(`customXml/assets/${object.assetId}`, asset.blob, { compression: 'STORE' }); }
+  const zip = await JSZip.loadAsync(await base.arrayBuffer());
+  const documentXml = await zip.file('word/document.xml')?.async('text');
+  if (documentXml) {
+    // docx 9.7 emits WPS fill after the outline when both are present. Word's
+    // DrawingML schema requires fill before line; repair only that WPS sequence.
+    const repaired = documentXml.replace(/(<wps:spPr\b[^>]*>[\s\S]*?<a:prstGeom\b[\s\S]*?<\/a:prstGeom>)<a:noFill\s*\/>\s*(<a:ln\b[\s\S]*?<\/a:ln>)\s*(<a:solidFill>[\s\S]*?<\/a:solidFill>)(<\/wps:spPr>)/g, '$1$3$2$4');
+    zip.file('word/document.xml', repaired);
+  }
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
 

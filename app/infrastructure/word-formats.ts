@@ -117,20 +117,46 @@ async function restoreObjectMetadata(file: File, extension: string, document: Ed
   if (!['docx', 'hwpx'].includes(extension)) return document;
   const { default: JSZip } = await import('jszip'); const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const metadataPath = extension === 'docx' ? 'customXml/our-ai-document.json' : 'Contents/our-ai-document.json';
-  const metadataText = await zip.file(metadataPath)?.async('text'); if (!metadataText) return document;
+  let metadataText = await zip.file(metadataPath)?.async('text');
+  if (!metadataText && extension === 'docx') {
+    const customPropertiesXml = await zip.file('docProps/custom.xml')?.async('text');
+    const customProperties = customPropertiesXml ? xmlDocument(customPropertiesXml) : null;
+    const payload = customProperties ? Array.from(customProperties.getElementsByTagName('*')).find((element) => element.localName === 'property' && element.getAttribute('name') === 'OurAiDocumentV2')?.textContent?.replace(/\s+/g, '') : undefined;
+    if (payload) {
+      const binary = atob(payload); const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      metadataText = new TextDecoder().decode(bytes);
+    }
+  }
+  if (!metadataText) return document;
   const metadata = JSON.parse(metadataText) as { format?: string; settings?: EditorDocument['settings']['pageNumber']; pages?: Array<{ header?: string; footer?: string; objects?: DocumentObject[] }> };
-  if (metadata.format !== 'our-ai-hangeul-objects-v1' || !Array.isArray(metadata.pages)) return document;
+  if (!['our-ai-hangeul-objects-v1', 'our-ai-hangeul-objects-v2'].includes(metadata.format ?? '') || !Array.isArray(metadata.pages)) return document;
   if (metadata.pages.length > MAX_DOCUMENT_PAGES) throw new Error(`가져올 문서는 최대 ${MAX_DOCUMENT_PAGES}쪽까지 지원합니다.`);
   const pages = [...document.pages]; while (pages.length < metadata.pages.length) pages.push(createPage());
   for (let index = 0; index < metadata.pages.length; index += 1) {
     const source = metadata.pages[index]; const objects: DocumentObject[] = [];
+    const nativeObjects = [...pages[index].objects];
     for (const object of source.objects ?? []) {
+      if (metadata.format === 'our-ai-hangeul-objects-v2') {
+        const nativeIndex = nativeObjects.findIndex((candidate) => candidate.type === object.type && (candidate.name === object.name || candidate.type === 'text-box' && object.type === 'text-box' && candidate.text === object.text));
+        const fallbackIndex = nativeIndex >= 0 ? nativeIndex : nativeObjects.findIndex((candidate) => candidate.type === object.type);
+        if (fallbackIndex >= 0) {
+          const [nativeObject] = nativeObjects.splice(fallbackIndex, 1);
+          objects.push({ ...object, ...nativeObject, id: object.id, ...(object.type === 'text-box' && nativeObject.type === 'text-box' ? { style: object.style ?? nativeObject.style } : {}) } as DocumentObject);
+          continue;
+        }
+        if (!object.assetId) objects.push(object);
+        continue;
+      }
       if (object.assetId) {
-        const assetPath = extension === 'docx' ? `customXml/assets/${object.assetId}` : `BinData/${object.assetId}`; const blob = await zip.file(assetPath)?.async('blob');
+        const safeId = object.assetId.replace(/[^A-Za-z0-9._-]/g, '_');
+        const assetPath = extension === 'docx' ? `customXml/assets/${safeId}.bin` : `BinData/${object.assetId}`;
+        const legacyAssetPath = extension === 'docx' ? `customXml/assets/${object.assetId}` : assetPath;
+        const blob = await (zip.file(assetPath) ?? zip.file(legacyAssetPath))?.async('blob');
         if (blob) { const stored = await storeAsset(blob, object.name || '가져온 이미지', object.mediaType || blob.type); objects.push({ ...object, assetId: stored.id }); continue; }
       }
       objects.push(object);
     }
+    if (metadata.format === 'our-ai-hangeul-objects-v2') objects.push(...nativeObjects);
     pages[index] = { ...pages[index], header: source.header, footer: source.footer, objects };
   }
   return { ...document, settings: metadata.settings ? { ...document.settings, pageNumber: metadata.settings } : document.settings, pages };

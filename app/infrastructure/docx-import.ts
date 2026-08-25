@@ -184,8 +184,18 @@ export async function importDocxDocument(file: File): Promise<EditorDocument> {
     const target = targetSize(); const scale = Math.min(target.width / layout.sourceWidthPx, target.height / layout.sourceHeightPx);
     const width = sourceWidth * scale; const height = sourceHeight * scale;
     const anchored = container.localName === 'anchor';
+    const usableBottom = layout.sourceHeightPx - mmToPx(builder.page.margins.bottom);
+    const movedForOverflow = !anchored && builder.visible && builder.estimatedY + sourceHeight > usableBottom;
+    if (movedForOverflow) pageBreak(hasRenderedBreaks ? 'rendered' : 'explicit');
     let x = anchored ? positionAxis(first(container, WP, 'positionH'), 'horizontal', layout, builder, sourceWidth) : paragraphAlignment === 'right' ? layout.sourceWidthPx - mmToPx(builder.page.margins.right) - sourceWidth : paragraphAlignment === 'center' ? (layout.sourceWidthPx - sourceWidth) / 2 : mmToPx(builder.page.margins.left) + inlineOffsetX;
     let y = anchored ? positionAxis(first(container, WP, 'positionV'), 'vertical', layout, builder, sourceHeight) : builder.estimatedY;
+    const verticalPosition = first(container, WP, 'positionV');
+    const movedParagraphAnchor = anchored && verticalPosition?.getAttribute('relativeFrom') === 'paragraph' && builder.visible && y + sourceHeight > usableBottom;
+    if (movedParagraphAnchor) {
+      pageBreak(hasRenderedBreaks ? 'rendered' : 'explicit');
+      x = positionAxis(first(container, WP, 'positionH'), 'horizontal', layout, builder, sourceWidth);
+      y = positionAxis(verticalPosition, 'vertical', layout, builder, sourceHeight);
+    }
     x *= target.width / layout.sourceWidthPx; y *= target.height / layout.sourceHeightPx;
     const rotation = number(first(container, A, 'xfrm')?.getAttribute('rot')) / 60_000;
     const description = first(container, WP, 'docPr'); const name = description?.getAttribute('descr') || description?.getAttribute('name') || relation?.target.split('/').pop();
@@ -195,9 +205,9 @@ export async function importDocxDocument(file: File): Promise<EditorDocument> {
     if (object) {
       builder.page.objects.push(object); touch();
       if (!anchored) builder.estimatedY = Math.max(builder.estimatedY, y + height + 8);
-      return anchored ? 0 : height + 8;
+      return { reservedHeight: anchored ? 0 : height + 8, consumedRenderedBoundary: movedForOverflow && hasRenderedBreaks };
     }
-    return 0;
+    return { reservedHeight: 0, consumedRenderedBoundary: false };
   };
   const addVml = async (pict: Element, alignment: string) => {
     const shape = first(pict, V, 'shape'); const image = first(pict, V, 'imagedata'); const relation = relationMap.get(relationId(image));
@@ -213,6 +223,7 @@ export async function importDocxDocument(file: File): Promise<EditorDocument> {
     const shape = paragraphShape(paragraph, styles, layout.linePitchPx); const alignment = String(shape.attrs.textAlign ?? 'left'); let inline: RichNode[] = [];
     let emitted = false;
     let endedWithPageBoundary = false;
+    let consumedRenderedBoundary = false;
     const appendText = (text: string, marks: RichNode['marks']) => {
       const previous = inline.at(-1);
       if (previous?.type === 'text' && JSON.stringify(previous.marks ?? []) === JSON.stringify(marks ?? [])) previous.text = `${previous.text ?? ''}${text}`;
@@ -240,14 +251,21 @@ export async function importDocxDocument(file: File): Promise<EditorDocument> {
         return;
       }
       if (isTag(element, W, 'tab')) { endedWithPageBoundary = false; inline.push({ type: 'text', text: '\t', ...(marks?.length ? { marks } : {}) }); return; }
-      if (isTag(element, W, 'lastRenderedPageBreak')) { flush(false); pageBreak('rendered'); emitted = false; endedWithPageBoundary = true; return; }
+      if (isTag(element, W, 'lastRenderedPageBreak')) {
+        if (consumedRenderedBoundary) { consumedRenderedBoundary = false; endedWithPageBoundary = false; return; }
+        flush(false); pageBreak('rendered'); emitted = false; endedWithPageBoundary = true; return;
+      }
       if (isTag(element, W, 'br')) { if (wordValue(element, 'type') === 'page') { flush(false); pageBreak('explicit'); emitted = false; endedWithPageBoundary = true; } else { endedWithPageBoundary = false; inline.push({ type: 'hardBreak' }); } return; }
       if (isTag(element, W, 'drawing')) {
         endedWithPageBoundary = false;
         if (inline.length) flush();
         let reservedHeight = 0;
         const inlineOffsetX = Number(shape.attrs.marginLeftPx ?? 0) + Number(shape.attrs.textIndentPx ?? 0);
-        for (const item of descendants(element, WP, 'anchor').concat(descendants(element, WP, 'inline'))) reservedHeight = Math.max(reservedHeight, await addDrawing(item, alignment, inlineOffsetX));
+        for (const item of descendants(element, WP, 'anchor').concat(descendants(element, WP, 'inline'))) {
+          const placement = await addDrawing(item, alignment, inlineOffsetX);
+          reservedHeight = Math.max(reservedHeight, placement.reservedHeight);
+          consumedRenderedBoundary ||= placement.consumedRenderedBoundary;
+        }
         if (reservedHeight > 0) {
           (builder.page.textFlow.content as RichNode[]).push({ type: 'paragraph', attrs: { lineHeight: `${reservedHeight}px`, spaceBeforePx: 0, spaceAfterPx: 0 } });
           syncEstimatedY(); emitted = true;

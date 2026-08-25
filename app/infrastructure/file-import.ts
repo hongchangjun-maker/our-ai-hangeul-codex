@@ -1,8 +1,9 @@
 import { migrateDocument, type EditorDocument, type DocumentObject } from '../domain/document';
 import { storeAsset, storeAssetWithId } from './local-storage';
-import { WORD_IMPORT_EXTENSIONS, importWordDocument } from './word-formats';
 import { assertImageSignature, fittedImageSize, imagePixelSize } from './image-metadata';
 import { queueImageVariants } from './image-proxy';
+
+const WORD_IMPORT_EXTENSIONS = ['hwpx', 'docx', 'odt', 'rtf', 'html', 'htm', 'md', 'markdown', 'txt'] as const;
 
 export const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']);
 export const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
@@ -99,6 +100,7 @@ export async function importFile(file: File, position = { x: 90, y: 120 }): Prom
   }
 
   if ((WORD_IMPORT_EXTENSIONS as readonly string[]).includes(extension)) {
+    const { importWordDocument } = await import('./word-formats');
     const document = await importWordDocument(file, extension);
     const notice = extension === 'docx'
       ? `Word 저장 기준으로 ${document.pages.length}쪽을 복원했습니다. 특수 글꼴·도형 효과는 편집 가능한 기본 요소로 바뀔 수 있습니다.`

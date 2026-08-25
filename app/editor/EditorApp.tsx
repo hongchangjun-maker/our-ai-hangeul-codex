@@ -1,6 +1,5 @@
 'use client';
 import Color from '@tiptap/extension-color';
-import FontFamily from '@tiptap/extension-font-family';
 import Highlight from '@tiptap/extension-highlight';
 import { Table } from '@tiptap/extension-table';
 import TableCell from '@tiptap/extension-table-cell';
@@ -12,24 +11,18 @@ import type { JSONContent } from '@tiptap/core';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { AlertTriangle, FileCheck2, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { applyDocumentStylePreset, createDocument, createPage, defaultMarginsForPreset, documentStylePreset, duplicatePage, MAX_DOCUMENT_PAGES, migrateDocument, type DocumentObject, type DocumentStyleId, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
 import { fitPageObjects, pageGeometry } from '../domain/geometry';
 import { paragraphsFromText } from '../domain/text-tools'; import { applyPaperPresetToAllPages } from '../domain/text-pagination';
-import { collectDocumentFontFamilies, documentToText } from '../infrastructure/export-service';
+import { collectDocumentFontFamilies, documentToText } from '../domain/document-content';
 import { importFile } from '../infrastructure/file-import';
 import { listRecentDocuments } from '../infrastructure/local-storage';
-import { AdminDialog } from './components/AdminDialog';
-import { AIAssistantPanel } from './components/AIAssistantPanel';
 import { EditorChrome } from './components/EditorChrome';
-import { ExportDialog } from './components/ExportDialog';
-import { FontLibraryDialog } from './components/FontLibraryDialog';
-import { CloudSyncDialog } from './components/CloudSyncDialog';
-import { PageSetupDialog } from './components/PageSetupDialog'; import { ReviewDialog } from './components/ReviewDialog';
 import { PageCanvas } from './components/PageCanvas';
 import { RealtimeCollaboration } from './components/RealtimeCollaboration';
 import { WelcomeScreen } from './components/WelcomeScreen';
-import { FontSize, LineHeight } from './extensions/formatting';
+import { DocumentFontFamily, FontSize, LineHeight } from './extensions/formatting';
 import { useFontPreferences } from './hooks/use-font-preferences';
 import { printWithOriginalImages, useDocumentExport } from './hooks/use-document-export';
 import { useDocumentState } from './hooks/use-document'; import { useTypingPerformanceProbe } from './hooks/use-typing-performance-probe';
@@ -37,6 +30,13 @@ import { useAppDefaults } from './hooks/use-app-defaults'; import { useShareLink
 import { useViewportZoom } from './hooks/use-viewport-zoom'; import { useClipboardImages } from './hooks/use-clipboard-images'; import { usePageViewMode } from './hooks/use-page-view-mode';
 import { useEditorContentTransition } from './hooks/use-editor-content-transition'; import { useLivePagination } from './hooks/use-live-pagination';
 import { rowsToTable } from './table-utils';
+const AdminDialog = lazy(() => import('./components/AdminDialog').then((module) => ({ default: module.AdminDialog })));
+const AIAssistantPanel = lazy(() => import('./components/AIAssistantPanel').then((module) => ({ default: module.AIAssistantPanel })));
+const ExportDialog = lazy(() => import('./components/ExportDialog').then((module) => ({ default: module.ExportDialog })));
+const FontLibraryDialog = lazy(() => import('./components/FontLibraryDialog').then((module) => ({ default: module.FontLibraryDialog })));
+const CloudSyncDialog = lazy(() => import('./components/CloudSyncDialog').then((module) => ({ default: module.CloudSyncDialog })));
+const PageSetupDialog = lazy(() => import('./components/PageSetupDialog').then((module) => ({ default: module.PageSetupDialog })));
+const ReviewDialog = lazy(() => import('./components/ReviewDialog').then((module) => ({ default: module.ReviewDialog })));
 export function EditorApp() {
   useTypingPerformanceProbe(); const store = useDocumentState();
   const { defaults: appDefaults, refresh: refreshAppDefaults } = useAppDefaults();
@@ -89,7 +89,7 @@ export function EditorApp() {
       StarterKit,
       TextStyle,
       Color,
-      FontFamily,
+      DocumentFontFamily,
       FontSize,
       LineHeight,
       Highlight.configure({ multicolor: true }),
@@ -341,7 +341,7 @@ export function EditorApp() {
   if (screen === 'welcome') return <>
     <WelcomeScreen recent={recent} interrupted={store.interrupted} onCreate={createNew} onOpen={(document) => openDocument(document, true)} onFile={(files) => { createNew(); setTimeout(() => void handleFiles(files, 0), 0); }} onAdmin={() => setAdminOpen(true)} />
     {store.interrupted && store.recoveryCandidate && <div className="recovery-banner" role="dialog" aria-label="이전 작업 복구"><AlertTriangle size={21} /><span><strong>이전 작업을 복구할까요?</strong><small>{store.recoveryCandidate.name} · {new Date(store.recoveryCandidate.updatedAt).toLocaleString('ko-KR')}</small></span><button type="button" onClick={() => openDocument(store.recoveryCandidate!)}><FileCheck2 size={16} /> 복구</button><button type="button" className="icon-button" onClick={store.dismissRecovery} aria-label="복구 알림 닫기"><X size={16} /></button></div>}
-    <AdminDialog open={adminOpen} onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} />
+    {adminOpen && <Suspense fallback={null}><AdminDialog open onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} /></Suspense>}
   </>;
 
   return <main className="editor-shell">
@@ -414,14 +414,16 @@ export function EditorApp() {
         onZoom={setManualZoom}
         pageViewMode={pageViewMode} onPageViewMode={setPageViewMode}
       />
-      {aiOpen && <AIAssistantPanel selectedText={selectionText} documentText={documentToText(store.document)} onClose={() => setAiOpen(false)} onApply={applyAi} />}
+      {aiOpen && <Suspense fallback={null}><AIAssistantPanel selectedText={selectionText} documentText={documentToText(store.document)} onClose={() => setAiOpen(false)} onApply={applyAi} /></Suspense>}
     </section>
-    <ExportDialog open={exportOpen} busy={exportBusy} message={exportMessage} fontFamilies={collectDocumentFontFamilies(store.document)} onClose={() => setExportOpen(false)} onExport={(type) => void runExport(type)} />
-    <FontLibraryDialog open={fontLibraryOpen} favoriteFonts={favoriteFonts} onClose={() => setFontLibraryOpen(false)} onToggleFavorite={toggleFavoriteFont} onApply={applyFontFromLibrary} />
-    <PageSetupDialog open={pageSetupOpen} document={store.document} currentPage={currentPage} onChange={store.replaceDocument} onClose={() => setPageSetupOpen(false)} />
-    <ReviewDialog open={reviewOpen} document={store.document} onChange={store.replaceDocument} onClose={() => setReviewOpen(false)} />
-    <CloudSyncDialog key={`cloud-${store.document.id}`} open={cloudOpen} document={store.document} onChange={(document) => { const nextPage = Math.min(currentPageRef.current, document.pages.length - 1); currentPageRef.current = nextPage; pageIdRef.current = ''; setSelectionText(''); setCurrentPage(nextPage); store.replaceDocument(document); }} onClose={() => setCloudOpen(false)} />
-    <AdminDialog open={adminOpen} onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} />
+    <Suspense fallback={null}>
+      {exportOpen && <ExportDialog open busy={exportBusy} message={exportMessage} fontFamilies={collectDocumentFontFamilies(store.document)} onClose={() => setExportOpen(false)} onExport={(type) => void runExport(type)} />}
+      {fontLibraryOpen && <FontLibraryDialog open favoriteFonts={favoriteFonts} onClose={() => setFontLibraryOpen(false)} onToggleFavorite={toggleFavoriteFont} onApply={applyFontFromLibrary} />}
+      {pageSetupOpen && <PageSetupDialog open document={store.document} currentPage={currentPage} onChange={store.replaceDocument} onClose={() => setPageSetupOpen(false)} />}
+      {reviewOpen && <ReviewDialog open document={store.document} onChange={store.replaceDocument} onClose={() => setReviewOpen(false)} />}
+      {cloudOpen && <CloudSyncDialog key={`cloud-${store.document.id}`} open document={store.document} onChange={(document) => { const nextPage = Math.min(currentPageRef.current, document.pages.length - 1); currentPageRef.current = nextPage; pageIdRef.current = ''; setSelectionText(''); setCurrentPage(nextPage); store.replaceDocument(document); }} onClose={() => setCloudOpen(false)} />}
+      {adminOpen && <AdminDialog open onClose={() => { setAdminOpen(false); void refreshAppDefaults(); }} />}
+    </Suspense>
     {toast && <div className={`toast ${toast.type}`} role="status"><span>{toast.message}</span><button type="button" onClick={() => setToast(null)} aria-label="알림 닫기"><X size={15} /></button></div>}
   </main>;
 }

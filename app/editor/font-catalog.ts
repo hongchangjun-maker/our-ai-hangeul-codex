@@ -54,3 +54,5 @@ export function isBundledFont(family: string) {
 export function fontLabel(family: string) {
   return APP_FONTS.find((font) => font.family === family)?.label ?? family;
 }
+
+export { FONT_SUBSTITUTIONS } from '../domain/font-families';

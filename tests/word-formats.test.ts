@@ -57,7 +57,7 @@ describe('word document format boundary', () => {
     }
 
     const docxZip = await JSZip.loadAsync(await buildDocxBlob(document));
-    expect(await docxZip.file(`customXml/assets/${asset.id}`)?.async('uint8array')).toEqual(bytes);
+    expect(docxZip.file('docProps/custom.xml')).toBeTruthy();
     const hwpxZip = await JSZip.loadAsync(await buildHwpxBlob(document));
     expect(await hwpxZip.file(`BinData/${asset.id}`)?.async('uint8array')).toEqual(bytes);
   });
@@ -131,6 +131,35 @@ describe('word document format boundary', () => {
     expect(result.document.pages[0].objects).toHaveLength(0);
     expect(result.document.pages[1].objects[0]).toMatchObject({ type: 'image', name: '둘째 쪽 그림', x: 105.6 });
     expect(result.document.pages[1].textFlow.content).toEqual(expect.arrayContaining([expect.objectContaining({ attrs: expect.objectContaining({ lineHeight: '58px' }) })]));
+  });
+
+  it('moves an inline picture that does not fit to the next rendered page without adding a blank page', async () => {
+    const zip = new JSZip();
+    const paragraphs = Array.from({ length: 38 }, (_, index) => `<w:p><w:r><w:t>${index + 1}번째 줄</w:t></w:r></w:p>`).join('');
+    zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body>${paragraphs}<w:p><w:r><w:drawing><wp:inline><wp:extent cx="4762500" cy="1905000"/><wp:docPr id="1" name="다음 쪽 머리 그림"/><a:graphic><a:graphicData><a:blip r:embed="rId1"/></a:graphicData></a:graphic></wp:inline></w:drawing><w:lastRenderedPageBreak/></w:r></w:p><w:sectPr><w:pgSz w:w="8732" w:h="12247"/><w:pgMar w:top="1588" w:right="1304" w:bottom="1871" w:left="1304"/></w:sectPr></w:body></w:document>`);
+    zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>');
+    zip.file('word/media/image1.png', new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+    const result = await importFile(new File([await zip.generateAsync({ type: 'blob' })], 'inline-overflow.docx'));
+    expect(result.kind).toBe('document');
+    if (result.kind !== 'document') return;
+    expect(result.document.pages).toHaveLength(2);
+    expect(result.document.pages[0].objects).toHaveLength(0);
+    expect(result.document.pages[1].objects[0]).toMatchObject({ type: 'image', name: '다음 쪽 머리 그림' });
+  });
+
+  it('moves a paragraph-relative anchor to the next page when its frame crosses the text bottom', async () => {
+    const zip = new JSZip();
+    const paragraphs = Array.from({ length: 30 }, (_, index) => `<w:p><w:r><w:t>${index + 1}번째 본문 줄</w:t></w:r></w:p>`).join('');
+    zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body>${paragraphs}<w:p><w:r><w:drawing><wp:anchor behindDoc="1"><wp:positionH relativeFrom="column"><wp:posOffset>-190500</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>-952500</wp:posOffset></wp:positionV><wp:extent cx="5528142" cy="2304416"/><wp:docPr id="2" name="문단 기준 다음 쪽 그림"/><a:graphic><a:graphicData><a:blip r:embed="rId1"/></a:graphicData></a:graphic></wp:anchor></w:drawing><w:lastRenderedPageBreak/></w:r></w:p><w:sectPr><w:pgSz w:w="8732" w:h="12247"/><w:pgMar w:top="1588" w:right="1304" w:bottom="1871" w:left="1304"/></w:sectPr></w:body></w:document>`);
+    zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>');
+    zip.file('word/media/image1.png', new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+    const result = await importFile(new File([await zip.generateAsync({ type: 'blob' })], 'anchor-overflow.docx'));
+    expect(result.kind).toBe('document');
+    if (result.kind !== 'document') return;
+    expect(result.document.pages).toHaveLength(2);
+    expect(result.document.pages[0].objects).toHaveLength(0);
+    expect(result.document.pages[1].objects[0]).toMatchObject({ type: 'image', name: '문단 기준 다음 쪽 그림' });
+    expect(Math.abs(result.document.pages[1].objects[0].y)).toBeLessThan(10);
   });
 
   it('deduplicates adjacent explicit and rendered page markers across paragraphs', async () => {
@@ -224,18 +253,32 @@ describe('word document format boundary', () => {
     document.pages[0].header = '회사 머리말'; document.pages[0].footer = '보안 문서';
     document.settings.pageNumber = { enabled: true, start: 7, position: 'footer-right', format: 'page-of-total' };
     document.pages[0].textFlow = { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '항목' }] }] }, { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '값' }] }] }] }, { type: 'tableRow', content: [{ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '합계' }] }] }, { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '100' }] }] }] }] }] };
-    document.pages[0].objects = [{ id: 'box-1', type: 'text-box', x: 50, y: 60, width: 220, height: 80, rotation: 0, zIndex: 4, locked: false, opacity: 1, text: '왕복 글상자' }];
+    const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l9sS8QAAAABJRU5ErkJggg=='), (character) => character.charCodeAt(0));
+    const asset = await storeAsset(new Blob([png], { type: 'image/png' }), 'anchor.png', 'image/png', { width: 1, height: 1 });
+    document.pages[0].objects = [
+      { id: 'image-1', type: 'image', x: 35, y: 45, width: 120, height: 80, rotation: 0, zIndex: 3, locked: false, opacity: 1, assetId: asset.id, name: 'anchor.png', mediaType: 'image/png', sourceWidthPx: 1, sourceHeightPx: 1 },
+      { id: 'box-1', type: 'text-box', x: 50, y: 160, width: 220, height: 80, rotation: 0, zIndex: 4, locked: false, opacity: 1, text: '왕복 글상자' },
+    ];
     const docxBlob = await buildDocxBlob(document); const docxZip = await JSZip.loadAsync(docxBlob);
     expect(await docxZip.file('word/header1.xml')?.async('text')).toContain('회사 머리말');
-    expect(await docxZip.file('word/document.xml')?.async('text')).toContain('<w:tbl>');
+    const documentXml = await docxZip.file('word/document.xml')!.async('text');
+    expect(documentXml).toContain('<w:tbl>');
+    expect(documentXml).toContain('<wp:anchor');
+    expect(documentXml).toContain('<a:blip');
+    expect(documentXml).toContain('<wps:wsp');
+    expect(documentXml).toContain('왕복 글상자');
+    expect(await docxZip.file('docProps/custom.xml')?.async('text')).toContain('OurAiDocumentV2');
     const docxImported = await importFile(new File([docxBlob], 'roundtrip.docx'));
     expect(importedText(docxImported)).toContain('합계');
-    if (docxImported.kind === 'document') expect(docxImported.document.pages[0].objects[0].text).toBe('왕복 글상자');
+    if (docxImported.kind === 'document') {
+      expect(docxImported.document.pages[0].objects.find((object) => object.type === 'image')?.name).toBe('anchor.png');
+      expect(docxImported.document.pages[0].objects.find((object) => object.type === 'text-box')?.text).toBe('왕복 글상자');
+    }
     const hwpxBlob = await buildHwpxBlob(document); const hwpxZip = await JSZip.loadAsync(hwpxBlob);
     expect(await hwpxZip.file('Contents/section0.xml')?.async('text')).toContain('<hp:tbl');
     const hwpxImported = await importFile(new File([hwpxBlob], 'roundtrip.hwpx'));
     expect(importedText(hwpxImported)).toContain('100');
-    if (hwpxImported.kind === 'document') { expect(hwpxImported.document.pages[0].header).toBe('회사 머리말'); expect(hwpxImported.document.pages[0].objects[0].text).toBe('왕복 글상자'); }
+    if (hwpxImported.kind === 'document') { expect(hwpxImported.document.pages[0].header).toBe('회사 머리말'); expect(hwpxImported.document.pages[0].objects.find((object) => object.type === 'text-box')?.text).toBe('왕복 글상자'); }
   });
 
   it('writes a Hancom-shaped multi-section HWPX package with page layout definitions', async () => {

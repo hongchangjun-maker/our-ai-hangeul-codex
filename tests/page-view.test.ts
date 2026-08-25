@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pageViewRange, restorePageViewMode, shouldVirtualizePage } from '../app/editor/page-view';
+import { pageThumbnailIndexes, pageViewRange, restorePageViewMode, shouldVirtualizePage } from '../app/editor/page-view';
 
 describe('page view preferences', () => {
   it('restores only a supported page view mode', () => {
@@ -21,5 +21,15 @@ describe('page view preferences', () => {
     expect(shouldVirtualizePage(300, 149, 299)).toBe(true);
     expect(shouldVirtualizePage(300, 149, 299, true)).toBe(false);
     expect(shouldVirtualizePage(20, 0, 19)).toBe(false);
+  });
+
+  it('keeps a 500-page navigator bounded while retaining the ends and nearby pages', () => {
+    const indexes = pageThumbnailIndexes(500, 249);
+    expect(indexes).toHaveLength(27);
+    expect(indexes.at(0)).toBe(0);
+    expect(indexes.at(-1)).toBe(499);
+    expect(indexes).toContain(249);
+    expect(indexes).not.toContain(100);
+    expect(Array.from({ length: 500 }, (_, index) => index).filter((index) => !shouldVirtualizePage(500, 249, index))).toEqual([247, 248, 249, 250, 251]);
   });
 });

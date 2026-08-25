@@ -5,8 +5,9 @@ import { EditorContent } from '@tiptap/react';
 import { Columns2, FileText, Minus, Plus, Rows3 } from 'lucide-react';
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import type { DocumentObject, DocumentPage, EditorDocument, PageMargins } from '../../domain/document';
+import { webFontStack } from '../../domain/font-families';
 import { clamp, mmToPx, pageGeometry, pxToMm } from '../../domain/geometry';
-import { pageViewRange, shouldVirtualizePage, type PageViewMode } from '../page-view';
+import { pageThumbnailIndexes, pageViewRange, shouldVirtualizePage, type PageViewMode } from '../page-view';
 import { ImageAssetView } from './ImageAssetView';
 import { ObjectLayer } from './ObjectLayer';
 import { ObjectInspector } from './ObjectInspector';
@@ -52,7 +53,7 @@ function applyMarks(content: React.ReactNode, marks: unknown[] = []) {
     if (mark.type === 'underline') return <u key={index}>{node}</u>;
     if (mark.type === 'strike') return <s key={index}>{node}</s>;
     if (mark.type === 'highlight') return <mark key={index} style={{ backgroundColor: String(mark.attrs?.color || '#fff3a3') }}>{node}</mark>;
-    if (mark.type === 'textStyle') return <span key={index} style={{ color: mark.attrs?.color as string, fontFamily: mark.attrs?.fontFamily as string, fontSize: mark.attrs?.fontSize as string, letterSpacing: mark.attrs?.letterSpacing as string, fontStretch: mark.attrs?.fontStretch as string, position: mark.attrs?.baselineShift ? 'relative' : undefined, top: mark.attrs?.baselineShift ? `-${mark.attrs.baselineShift}` : undefined, verticalAlign: mark.attrs?.verticalAlign as string }}>{node}</span>;
+    if (mark.type === 'textStyle') return <span key={index} style={{ color: mark.attrs?.color as string, fontFamily: mark.attrs?.fontFamily ? webFontStack(String(mark.attrs.fontFamily)) : undefined, fontSize: mark.attrs?.fontSize as string, letterSpacing: mark.attrs?.letterSpacing as string, fontStretch: mark.attrs?.fontStretch as string, position: mark.attrs?.baselineShift ? 'relative' : undefined, top: mark.attrs?.baselineShift ? `-${mark.attrs.baselineShift}` : undefined, verticalAlign: mark.attrs?.verticalAlign as string }}>{node}</span>;
     return node;
   }, content);
 }
@@ -148,6 +149,7 @@ export function PageCanvas({
   const [renderAllPages, setRenderAllPages] = useState(false);
   const activePage = document.pages[currentPage] ?? document.pages[0];
   const selectedObject = activePage?.objects.find((object) => object.id === selectedObjectId) ?? null;
+  const thumbnailIndexes = pageThumbnailIndexes(document.pages.length, currentPage);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -244,7 +246,7 @@ export function PageCanvas({
   };
 
   return <>
-    {pageNavOpen && <aside className="page-nav" aria-label="페이지 탐색 및 선택 속성"><div className="panel-title"><strong>페이지</strong><button type="button" onClick={onAddPage} aria-label="페이지 추가"><Plus size={15} /></button></div><div className="page-thumb-list">{document.pages.map((page, index) => <button className={index === currentPage ? 'page-thumb selected' : 'page-thumb'} type="button" key={page.id} onClick={() => onCurrentPage(index)}><span className="thumb-paper"><i /><i /><i /></span><small>{index + 1}</small></button>)}</div>{selectedObject && activePage && <ObjectInspector object={selectedObject} page={activePage} pageWidth={pageGeometry(activePage).widthPx} pageHeight={pageGeometry(activePage).heightPx} onChange={(patch) => onObjectChange(selectedObject.id, patch, true)} onAction={onObjectAction} />}</aside>}
+    {pageNavOpen && <aside className="page-nav" aria-label="페이지 탐색 및 선택 속성"><div className="panel-title"><strong>페이지 · {document.pages.length}쪽</strong><button type="button" onClick={onAddPage} aria-label="페이지 추가"><Plus size={15} /></button></div><div className="page-thumb-list">{thumbnailIndexes.map((index, listIndex) => <Fragment key={document.pages[index].id}>{listIndex > 0 && index - thumbnailIndexes[listIndex - 1] > 1 ? <span className="page-thumb-gap" aria-hidden="true">⋯</span> : null}<button className={index === currentPage ? 'page-thumb selected' : 'page-thumb'} type="button" onClick={() => onCurrentPage(index)}><span className="thumb-paper"><i /><i /><i /></span><small>{index + 1}</small></button></Fragment>)}</div>{selectedObject && activePage && <ObjectInspector object={selectedObject} page={activePage} pageWidth={pageGeometry(activePage).widthPx} pageHeight={pageGeometry(activePage).heightPx} onChange={(patch) => onObjectChange(selectedObject.id, patch, true)} onAction={onObjectAction} />}</aside>}
     <div className={fileDragActive ? 'canvas-area file-drag-active' : 'canvas-area'} ref={canvasRef} onDragOver={(event) => { event.preventDefault(); setFileDragActive(true); }} onDragLeave={(event) => { if (event.currentTarget === event.target) setFileDragActive(false); }} onDrop={() => setFileDragActive(false)}>
       <div className="canvas-tools"><span>{activePage?.customSizeMm ? `${activePage.preset} 원본 규격 · ${activePage.customSizeMm.widthMm}×${activePage.customSizeMm.heightMm}mm` : `${activePage?.preset} · ${activePage?.orientation === 'portrait' ? '세로' : '가로'}`}</span><div className="page-view-switch" role="group" aria-label="페이지 배치"><button className={pageViewMode === 'single' ? 'active' : ''} type="button" onClick={() => onPageViewMode('single')} aria-pressed={pageViewMode === 'single'} title="한 쪽씩 보기 (Alt+1)"><Rows3 size={14} /><span>한 쪽</span></button><button className={pageViewMode === 'spread' ? 'active' : ''} type="button" onClick={() => onPageViewMode('spread')} aria-pressed={pageViewMode === 'spread'} title="두 쪽 나란히 보기 (Alt+2)"><Columns2 size={14} /><span>나란히</span></button>{document.pages.length > 1 && <button type="button" onClick={() => onCurrentPage((currentPage + 1) % document.pages.length)} aria-label="다음 쪽 편집">다음</button>}{pageViewMode === 'spread' && <b>{pageViewRange(currentPage, document.pages.length)}</b>}</div><span className="canvas-zoom"><button type="button" aria-label="축소" onClick={() => onZoom(Math.max(50, zoom - 25))}><Minus size={14} /></button><b>{visibleScale < scale ? `맞춤 ${Math.round(visibleScale * 100)}%` : `${zoom}%`}</b><button type="button" aria-label="확대" onClick={() => onZoom(Math.min(150, zoom + 25))}><Plus size={14} /></button></span></div>
       {fileDragActive && <div className="canvas-drop-hint" role="status">파일을 놓으면 현재 쪽에 가져옵니다</div>}
@@ -275,7 +277,7 @@ export function PageCanvas({
               {index === currentPage && dragTip ? <span className="margin-tooltip" style={{ left: dragTip.x, top: dragTip.y }}>{dragTip.text}</span> : null}
               </> : null}
             </span>
-            <div className="page-margin" style={{ width: geometry.widthPx, height: geometry.heightPx, padding, fontFamily: document.settings.defaultFont, fontSize: `${document.settings.defaultFontSize}pt`, '--document-heading-font': document.settings.headingFont, '--document-heading-color': document.settings.headingColor, '--document-line-height': String(document.settings.lineHeight) } as React.CSSProperties}>
+            <div className="page-margin" style={{ width: geometry.widthPx, height: geometry.heightPx, padding, fontFamily: webFontStack(document.settings.defaultFont), fontSize: `${document.settings.defaultFontSize}pt`, '--document-heading-font': webFontStack(document.settings.headingFont), '--document-heading-color': document.settings.headingColor, '--document-line-height': String(document.settings.lineHeight) } as React.CSSProperties}>
               {index === currentPage ? <EditorContent editor={editor} /> : <ReadOnlyRichText page={page} />}
             </div>
               {(page.header || (document.settings.pageNumber.enabled && document.settings.pageNumber.position === 'header-right')) && <div className="page-header" style={{ top: Math.max(7, mmToPx(page.margins.top) / 2), left: mmToPx(page.margins.left), right: mmToPx(page.margins.right) }}><span>{page.header}</span>{document.settings.pageNumber.enabled && document.settings.pageNumber.position === 'header-right' && <b>{pageNumberText(index)}</b>}</div>}

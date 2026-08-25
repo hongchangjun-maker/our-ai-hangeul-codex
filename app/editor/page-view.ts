@@ -15,3 +15,12 @@ export function pageViewRange(currentPage: number, pageCount: number) {
 export function shouldVirtualizePage(pageCount: number, currentPage: number, pageIndex: number, renderAllPages = false) {
   return !renderAllPages && pageCount > 20 && Math.abs(pageIndex - currentPage) > 2;
 }
+
+export function pageThumbnailIndexes(pageCount: number, currentPage: number, radius = 12) {
+  if (pageCount <= radius * 2 + 5) return Array.from({ length: Math.max(0, pageCount) }, (_, index) => index);
+  const result = new Set<number>([0, Math.max(0, pageCount - 1)]);
+  const start = Math.max(0, currentPage - radius);
+  const end = Math.min(pageCount - 1, currentPage + radius);
+  for (let index = start; index <= end; index += 1) result.add(index);
+  return [...result].sort((left, right) => left - right);
+}

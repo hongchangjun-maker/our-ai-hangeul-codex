@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import type { EditorDocument } from '../../domain/document';
-import { exportDocx, exportHtml, exportHwpx, exportMarkdown, exportOdt, exportPdf, exportPng, exportRtf, exportSource, exportText } from '../../infrastructure/export-service';
 
 export type ExportType = 'pdf' | 'png' | 'hwpx' | 'docx' | 'odt' | 'rtf' | 'markdown' | 'txt' | 'html' | 'source' | 'print';
 
@@ -30,18 +29,20 @@ export function useDocumentExport(document: EditorDocument) {
   const runExport = async (type: ExportType) => {
     setMessage('');
     try {
-      if (type === 'source') { setBusy(true); setMessage('원본 이미지가 포함된 OAH 패키지를 준비하는 중…'); await exportSource(document); }
-      else if (type === 'txt') exportText(document);
-      else if (type === 'markdown') exportMarkdown(document);
-      else if (type === 'rtf') exportRtf(document);
-      else if (type === 'html') await withCleanOutput(async () => { const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page .page-margin')).map((element) => element.innerHTML); exportHtml(document, pages); });
-      else if (type === 'print') await printWithOriginalImages();
+      if (type === 'print') await printWithOriginalImages();
+      else {
+        const service = await import('../../infrastructure/export-service');
+        if (type === 'source') { setBusy(true); setMessage('원본 이미지가 포함된 OAH 패키지를 준비하는 중…'); await service.exportSource(document); }
+        else if (type === 'txt') service.exportText(document);
+        else if (type === 'markdown') service.exportMarkdown(document);
+        else if (type === 'rtf') service.exportRtf(document);
+        else if (type === 'html') await withCleanOutput(async () => { const pages = Array.from(globalThis.document.querySelectorAll<HTMLElement>('.exportable-page .page-margin')).map((element) => element.innerHTML); service.exportHtml(document, pages); });
       else if (type === 'docx' || type === 'hwpx' || type === 'odt') {
         setBusy(true);
         setMessage(`${type.toUpperCase()} 문서를 준비하는 중…`);
-        if (type === 'docx') await exportDocx(document);
-        else if (type === 'hwpx') await exportHwpx(document);
-        else await exportOdt(document);
+        if (type === 'docx') await service.exportDocx(document);
+        else if (type === 'hwpx') await service.exportHwpx(document);
+        else await service.exportOdt(document);
         setMessage(`${type.toUpperCase()} 다운로드를 시작했습니다.`);
       } else {
         setBusy(true);
@@ -50,9 +51,10 @@ export function useDocumentExport(document: EditorDocument) {
         const transforms = pages.map((entry) => entry.page.style.transform);
         await withCleanOutput(async () => {
           pages.forEach(({ page }) => { page.style.transform = 'none'; });
-          try { if (type === 'png') await exportPng(document, pages, setMessage); else await exportPdf(document, pages, setMessage); }
+          try { if (type === 'png') await service.exportPng(document, pages, setMessage); else await service.exportPdf(document, pages, setMessage); }
           finally { pages.forEach((entry, index) => { entry.page.style.transform = transforms[index]; }); }
         });
+      }
       }
       if (!['pdf', 'docx', 'hwpx', 'odt', 'source'].includes(type)) setMessage('파일 저장을 시작했습니다.');
       else if (type === 'source') setMessage('무손실 원본 OAH 다운로드를 시작했습니다.');

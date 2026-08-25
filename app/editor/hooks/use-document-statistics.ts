@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { EditorDocument } from '../../domain/document';
-import { documentToText } from '../../infrastructure/export-service';
+import { documentToText } from '../../domain/document-content';
 
 type IdleWindow = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;

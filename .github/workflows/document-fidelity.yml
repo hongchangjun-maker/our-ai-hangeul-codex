@@ -1,0 +1,55 @@
+name: Document fidelity
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_pages:
+        description: Expected Word page count
+        required: true
+        default: '221'
+      allowed_ratio:
+        description: Maximum per-page pixel mismatch ratio
+        required: true
+        default: '0.16'
+
+jobs:
+  word-native-and-visual:
+    runs-on: [self-hosted, Windows, word]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - name: Start production preview
+        shell: pwsh
+        run: |
+          $process = Start-Process npm.cmd -ArgumentList 'run','start','--','--hostname','127.0.0.1','--port','3000' -PassThru -WindowStyle Hidden
+          $process.Id | Set-Content .qa-server.pid
+          for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            try { if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/).StatusCode -eq 200) { exit 0 } } catch {}
+            Start-Sleep -Seconds 1
+          }
+          throw 'Preview did not become ready.'
+      - name: Verify native Word round-trip
+        shell: pwsh
+        run: npm run qa:word-roundtrip
+      - name: Compare Word and browser pages
+        shell: pwsh
+        run: |
+          if (-not '${{ vars.DOCX_QA_SOURCE_PATH }}') { throw 'Set repository variable DOCX_QA_SOURCE_PATH on the Word self-hosted runner.' }
+          ./scripts/verify-manuscript-visual.ps1 -DocxPath '${{ vars.DOCX_QA_SOURCE_PATH }}' -BaseUrl 'http://127.0.0.1:3000/' -ExpectedPages ${{ inputs.expected_pages }} -AllowedRatio ${{ inputs.allowed_ratio }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: document-fidelity-report
+          path: tmp/
+          retention-days: 14
+      - name: Stop preview
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path .qa-server.pid) { Stop-Process -Id (Get-Content .qa-server.pid) -ErrorAction SilentlyContinue }

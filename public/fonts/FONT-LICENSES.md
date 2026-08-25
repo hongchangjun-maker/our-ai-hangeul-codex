@@ -12,4 +12,17 @@ preserved. The app does not sell any font by itself.
 | Gowun Dodum, Gowun Batang, Black Han Sans, Jua, Nanum Pen Script | [Google Fonts via Fontsource 5.3.0](https://fontsource.org/) | SIL OFL-1.1 |
 | Inter, Roboto, Open Sans, Montserrat, Lora, Source Serif 4, Playfair Display, JetBrains Mono | [Google Fonts via Fontsource 5.3.0](https://fontsource.org/) | SIL OFL-1.1 |
 
-The canonical OFL text is available from the [SIL Open Font License project](https://openfontlicense.org/).
+The complete license text is shipped with the webfonts as [OFL-1.1.txt](./OFL-1.1.txt), and the canonical copy is available from the [SIL Open Font License project](https://openfontlicense.org/).
+
+## Imported manuscript fonts
+
+The sample manuscript names Bookk and KoPub desktop fonts but embeds no font
+files or redistribution grant. Those binaries are therefore **not** copied into
+this commercial web app. The original family name is retained for DOCX
+round-trip export; the browser uses the following bundled OFL substitute:
+
+- Bookk Myeongjo / KoPub Batang -> Gowun Batang
+- Bookk Gothic / KoPub Dotum -> Pretendard
+
+Published KoPub terms require separate approval for server embedding, so the
+app treats it as an external desktop font rather than a distributable webfont.

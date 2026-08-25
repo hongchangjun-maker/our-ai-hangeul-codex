@@ -1,4 +1,6 @@
 import { Extension } from '@tiptap/core';
+import FontFamily from '@tiptap/extension-font-family';
+import { webFontStack } from '../../domain/font-families';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -7,10 +9,26 @@ declare module '@tiptap/core' {
       unsetFontSize: () => ReturnType;
     };
     lineHeight: {
-      setLineHeight: (height: string) => ReturnType;
+      setLineHeight: (lineHeight: string) => ReturnType;
+      unsetLineHeight: () => ReturnType;
     };
   }
 }
+
+export const DocumentFontFamily = FontFamily.extend({
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        fontFamily: {
+          default: null,
+          parseHTML: (element) => (element.style.fontFamily || '').split(',')[0]?.trim().replace(/^['"]|['"]$/g, '') || null,
+          renderHTML: (attributes) => attributes.fontFamily ? { style: `font-family: ${webFontStack(String(attributes.fontFamily))}` } : {},
+        },
+      },
+    }];
+  },
+});
 
 export const FontSize = Extension.create({
   name: 'fontSize',
@@ -42,6 +60,11 @@ export const FontSize = Extension.create({
           default: null,
           parseHTML: (element) => element.style.verticalAlign || null,
           renderHTML: (attributes) => attributes.verticalAlign ? { style: `vertical-align: ${attributes.verticalAlign}` } : {},
+        },
+        sourceFontFamily: {
+          default: null,
+          parseHTML: (element) => element.getAttribute('data-source-font-family') || null,
+          renderHTML: (attributes) => attributes.sourceFontFamily ? { 'data-source-font-family': attributes.sourceFontFamily } : {},
         },
       },
     }];
@@ -98,6 +121,10 @@ export const LineHeight = Extension.create({
       setLineHeight: (lineHeight) => ({ commands, editor }) => {
         const type = editor.isActive('heading') ? 'heading' : 'paragraph';
         return commands.updateAttributes(type, { lineHeight });
+      },
+      unsetLineHeight: () => ({ commands, editor }) => {
+        const type = editor.isActive('heading') ? 'heading' : 'paragraph';
+        return commands.resetAttributes(type, 'lineHeight');
       },
     };
   },
