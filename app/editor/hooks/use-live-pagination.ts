@@ -21,7 +21,7 @@ export function useLivePagination(options: LivePaginationOptions) {
   const frameRef = useRef<number | null>(null);
   const focusPageIdRef = useRef<string | null>(null);
   const limitMessageRef = useRef('');
-  optionsRef.current = options;
+  useEffect(() => { optionsRef.current = options; }, [options]);
   useEffect(() => () => { if (frameRef.current !== null) cancelAnimationFrame(frameRef.current); }, []);
 
   const schedule = useCallback((textFlow: RichTextDocument) => {
