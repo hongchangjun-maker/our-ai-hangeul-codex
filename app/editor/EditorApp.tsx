@@ -15,7 +15,7 @@ import { AlertTriangle, FileCheck2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { applyDocumentStylePreset, createDocument, createPage, defaultMarginsForPreset, documentStylePreset, duplicatePage, MAX_DOCUMENT_PAGES, migrateDocument, type DocumentObject, type DocumentStyleId, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
 import { fitPageObjects, pageGeometry } from '../domain/geometry';
-import { paragraphsFromText } from '../domain/text-tools';
+import { paragraphsFromText } from '../domain/text-tools'; import { applyPaperPresetToAllPages } from '../domain/text-pagination';
 import { collectDocumentFontFamilies, documentToText } from '../infrastructure/export-service';
 import { importFile } from '../infrastructure/file-import';
 import { listRecentDocuments } from '../infrastructure/local-storage';
@@ -260,12 +260,10 @@ export function EditorApp() {
   const currentPageHeight = pageGeometry(currentPageState).heightPx;
   const { zoom, fitPage, setManualZoom, stepZoom } = useViewportZoom(currentPageHeight);
   const onPagePreset = (nextPreset: PagePreset) => {
-    const nextMargins = defaultMarginsForPreset(nextPreset);
-    store.updateDocument((document) => ({ ...document, pages: document.pages.map((item, index) => {
-      if (pageLayoutScope === 'current' && index !== currentPage) return item;
-      return fitPageObjects({ ...item, preset: nextPreset, margins: nextMargins });
-    }) }));
-    documentActionAt.current = Date.now();
+    const activePageId = currentPageState.id; let nextPage = currentPage; let pageCount = store.document.pages.length;
+    try { store.updateDocument((document) => { const updated = applyPaperPresetToAllPages(document, nextPreset); nextPage = Math.max(0, updated.pages.findIndex((page) => page.id === activePageId)); pageCount = updated.pages.length; return updated; });
+      pageIdRef.current = ''; currentPageRef.current = nextPage; setCurrentPage(nextPage); setToast({ type: 'success', message: `${nextPreset} 크기를 문서 전체 ${pageCount}쪽에 적용했습니다.` }); documentActionAt.current = Date.now();
+    } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : '문서 전체 크기를 변경하지 못했습니다.' }); }
   };
 
   const onPageOrientation = () => {

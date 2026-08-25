@@ -1,5 +1,5 @@
-import { createPage, MAX_DOCUMENT_PAGES, PAGE_PRESETS, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from './document';
-import { mmToPx } from './geometry';
+import { createPage, defaultMarginsForPreset, MAX_DOCUMENT_PAGES, PAGE_PRESETS, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from './document';
+import { fitPageObjects, mmToPx } from './geometry';
 
 type RichNode = {
   type?: string;
@@ -177,6 +177,18 @@ export function paginateRichTextDocument(flow: RichTextDocument, options: TextPa
   }
   const fitted = pages.filter((content) => content.length).map((content) => ({ type: 'doc', content }) as RichTextDocument);
   return fitted.length ? fitted : [{ type: 'doc', content: [{ type: 'paragraph' }] }];
+}
+
+export function applyPaperPresetToAllPages(document: EditorDocument, preset: PagePreset): EditorDocument {
+  const margins = defaultMarginsForPreset(preset); const pages = [];
+  for (const source of document.pages) {
+    const flows = paginateRichTextDocument(source.textFlow, { preset, orientation: source.orientation, margins, defaultFontSizePt: document.settings.defaultFontSize, lineHeight: document.settings.lineHeight, maxPages: MAX_DOCUMENT_PAGES });
+    for (const [index, textFlow] of flows.entries()) {
+      if (pages.length >= MAX_DOCUMENT_PAGES) throw new Error(`문서는 최대 ${MAX_DOCUMENT_PAGES}쪽까지 만들 수 있습니다.`);
+      pages.push(index === 0 ? fitPageObjects({ ...source, preset, margins, textFlow }) : { ...createPage(textFlow, preset, source.orientation, margins), background: source.background, header: source.header, footer: source.footer });
+    }
+  }
+  return { ...document, pages };
 }
 
 export interface OverflowPageSplit {

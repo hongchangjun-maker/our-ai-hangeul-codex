@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createDocument, createPage, type RichTextDocument } from '../app/domain/document';
-import { estimateRichTextHeight, paginateRichTextDocument, splitOverflowingPage, textPageCapacity } from '../app/domain/text-pagination';
+import { createDocument, createPage, defaultMarginsForPreset, type RichTextDocument } from '../app/domain/document';
+import { applyPaperPresetToAllPages, estimateRichTextHeight, paginateRichTextDocument, splitOverflowingPage, textPageCapacity } from '../app/domain/text-pagination';
 
 const options = { preset: 'A4' as const, orientation: 'portrait' as const, margins: { top: 25.4, right: 25.4, bottom: 25.4, left: 25.4 }, defaultFontSizePt: 11, lineHeight: 1.7 };
 const textOf = (flow: RichTextDocument) => JSON.stringify(flow.content).match(/"text":"([^"]*)"/g)?.map((value) => JSON.parse(`{${value}}`).text).join('') ?? '';
@@ -29,6 +29,23 @@ describe('rich text page fitting', () => {
     const a5 = textPageCapacity({ ...options, preset: 'A5', margins: a5Page.margins });
     expect(a5.heightPx).toBeLessThan(a4.heightPx);
     expect(a5.widthPx).toBeLessThan(a4.widthPx);
+  });
+
+  it('applies a selected paper preset and its margins to every page regardless of the active page', () => {
+    const document = createDocument(); const firstId = document.pages[0].id;
+    document.pages.push(createPage({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '둘째 쪽' }] }] }, 'A4'));
+    const updated = applyPaperPresetToAllPages(document, 'A5');
+    expect(updated.pages).toHaveLength(2); expect(updated.pages[0].id).toBe(firstId);
+    expect(updated.pages.every((page) => page.preset === 'A5')).toBe(true);
+    expect(updated.pages.every((page) => JSON.stringify(page.margins) === JSON.stringify(defaultMarginsForPreset('A5')))).toBe(true);
+  });
+
+  it('repaginates overflowing text when the whole document changes to a smaller paper size', () => {
+    const document = createDocument(); const text = 'A5 전체 변환에서도 글자가 사라지면 안 됩니다. '.repeat(900);
+    document.pages[0].textFlow = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] };
+    const updated = applyPaperPresetToAllPages(document, 'A5');
+    expect(updated.pages.length).toBeGreaterThan(1); expect(updated.pages.map((page) => textOf(page.textFlow)).join('')).toBe(text);
+    expect(updated.pages.every((page) => page.preset === 'A5')).toBe(true);
   });
 
   it('inserts live overflow directly after the edited page without losing later pages or objects', () => {

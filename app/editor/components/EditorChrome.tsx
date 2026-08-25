@@ -266,8 +266,8 @@ export function EditorChrome({
         <span className="divider" />
         <button className="label-tool" type="button" onClick={onTogglePageLayoutScope}><ArrowLeftRight size={17} /> {pageLayoutScope === 'current' ? '현재 쪽' : '전체 쪽'}</button>
         <label className="label-tool">
-          <span>문서 크기</span>
-          <select className="select-tool" value={pagePreset} onChange={(event) => onPagePreset(event.target.value as PagePreset)} aria-label="문서 크기">
+          <span>문서 크기 · 전체 적용</span>
+          <select className="select-tool" value={pagePreset} onChange={(event) => onPagePreset(event.target.value as PagePreset)} aria-label="문서 크기 (전체 쪽 적용)">
             {(Object.keys(PAGE_PRESET_LABELS) as PagePreset[]).map((preset) => <option key={preset} value={preset}>{PAGE_PRESET_LABELS[preset]}</option>)}
           </select>
         </label>
