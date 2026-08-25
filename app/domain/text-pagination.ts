@@ -19,7 +19,7 @@ export interface TextPaginationOptions {
   customSizeMm?: { widthMm: number; heightMm: number };
 }
 
-const PAGE_FILL_RATIO = 0.96;
+const PAGE_FILL_RATIO = 1;
 const DEFAULT_FONT_SIZE_PT = 11;
 const DEFAULT_LINE_HEIGHT = 1.7;
 
@@ -76,7 +76,7 @@ function textBlockMetrics(node: RichNode, options: Required<Pick<TextPaginationO
   const spacingBefore = rawBefore === null || rawBefore === undefined || rawBefore === '' ? Number.NaN : Number(rawBefore);
   const spacingAfter = rawAfter === null || rawAfter === undefined || rawAfter === '' ? Number.NaN : Number(rawAfter);
   const hasStoredSpacing = Number.isFinite(spacingBefore) || Number.isFinite(spacingAfter);
-  const margin = hasStoredSpacing ? (Number.isFinite(spacingBefore) ? spacingBefore : 0) + (Number.isFinite(spacingAfter) ? spacingAfter : 0) : node.type === 'heading' ? (level === 1 ? 26 : level === 2 ? 40 : 32) : 14;
+  const margin = hasStoredSpacing ? Math.max(Number.isFinite(spacingBefore) ? spacingBefore : 0, Number.isFinite(spacingAfter) ? spacingAfter : 0) : node.type === 'heading' ? (level === 1 ? 26 : level === 2 ? 40 : 32) : 14;
   return { fontPx, lineHeight, margin, lines: countInlineLines(node.content, widthPx, fontPx) };
 }
 

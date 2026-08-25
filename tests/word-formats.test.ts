@@ -118,7 +118,7 @@ describe('word document format boundary', () => {
 
   it('restores Word page markers and keeps an embedded picture on its original page', async () => {
     const zip = new JSZip();
-    zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body><w:p><w:r><w:t>첫째 쪽</w:t><w:br w:type="page"/><w:lastRenderedPageBreak/><w:t>둘째 쪽</w:t><w:drawing><wp:inline><wp:extent cx="952500" cy="476250"/><wp:docPr id="1" name="둘째 쪽 그림"/><a:graphic><a:graphicData><a:blip r:embed="rId1"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`);
+    zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body><w:p><w:pPr><w:ind w:firstLine="144"/></w:pPr><w:r><w:t>첫째 쪽</w:t><w:br w:type="page"/><w:lastRenderedPageBreak/><w:t>둘째 쪽</w:t><w:drawing><wp:inline><wp:extent cx="952500" cy="476250"/><wp:docPr id="1" name="둘째 쪽 그림"/><a:graphic><a:graphicData><a:blip r:embed="rId1"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`);
     zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>');
     zip.file('word/media/image1.png', new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
     const file = new File([await zip.generateAsync({ type: 'blob' })], 'pages.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
@@ -129,7 +129,47 @@ describe('word document format boundary', () => {
     expect(JSON.stringify(result.document.pages[0].textFlow)).toContain('첫째 쪽');
     expect(JSON.stringify(result.document.pages[1].textFlow)).toContain('둘째 쪽');
     expect(result.document.pages[0].objects).toHaveLength(0);
-    expect(result.document.pages[1].objects[0]).toMatchObject({ type: 'image', name: '둘째 쪽 그림' });
+    expect(result.document.pages[1].objects[0]).toMatchObject({ type: 'image', name: '둘째 쪽 그림', x: 105.6 });
+    expect(result.document.pages[1].textFlow.content).toEqual(expect.arrayContaining([expect.objectContaining({ attrs: expect.objectContaining({ lineHeight: '58px' }) })]));
+  });
+
+  it('deduplicates adjacent explicit and rendered page markers across paragraphs', async () => {
+    const zip = new JSZip();
+    zip.file('word/document.xml', '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>첫째 쪽</w:t><w:br w:type="page"/></w:r></w:p><w:p><w:r><w:lastRenderedPageBreak/><w:t>둘째 쪽</w:t></w:r></w:p></w:body></w:document>');
+    const result = await importFile(new File([await zip.generateAsync({ type: 'blob' })], 'duplicate-boundary.docx'));
+    expect(result.kind).toBe('document');
+    if (result.kind !== 'document') return;
+    expect(result.document.pages).toHaveLength(2);
+    expect(JSON.stringify(result.document.pages[0].textFlow)).toContain('첫째 쪽');
+    expect(JSON.stringify(result.document.pages[1].textFlow)).toContain('둘째 쪽');
+    expect(JSON.stringify(result.document.pages[1].textFlow.content?.[0])).toContain('둘째 쪽');
+  });
+
+  it('uses the section document grid and separate Latin and Korean fonts', async () => {
+    const zip = new JSZip();
+    zip.file('word/styles.xml', '<?xml version="1.0"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:eastAsia="바탕"/><w:sz w:val="22"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="a3"><w:name w:val="바탕글"/><w:pPr><w:spacing w:line="312" w:lineRule="auto"/></w:pPr></w:style></w:styles>');
+    zip.file('word/document.xml', '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>AI 위인전</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="a3"/></w:pPr><w:r><w:t>출판 정보</w:t></w:r></w:p><w:sectPr><w:docGrid w:linePitch="360"/></w:sectPr></w:body></w:document>');
+    const result = await importFile(new File([await zip.generateAsync({ type: 'blob' })], 'grid-fonts.docx'));
+    expect(result.kind).toBe('document');
+    if (result.kind !== 'document') return;
+    const flow = JSON.stringify(result.document.pages[0].textFlow);
+    expect(result.document.pages[0].textFlow.content?.[0]).toMatchObject({ attrs: { lineHeight: '24px' } });
+    expect(result.document.pages[0].textFlow.content?.[1]).toMatchObject({ attrs: { lineHeight: '1.3' } });
+    expect(flow).toContain('"fontFamily":"Arial"');
+    expect(flow).toContain('"fontFamily":"바탕"');
+  });
+
+  it('uses the native DOCX page count to restore missing rendered boundaries without blank pages', async () => {
+    const zip = new JSZip();
+    zip.file('docProps/app.xml', '<?xml version="1.0"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Pages>3</Pages></Properties>');
+    const paragraphs = Array.from({ length: 45 }, (_, index) => `<w:p><w:r><w:t>${index + 1}번째 복원 문단은 원고의 실제 쪽 수에 맞춰 이동합니다.</w:t></w:r></w:p>`).join('');
+    zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>첫째 쪽</w:t><w:br w:type="page"/></w:r></w:p><w:p><w:r><w:lastRenderedPageBreak/></w:r></w:p>${paragraphs}</w:body></w:document>`);
+    const result = await importFile(new File([await zip.generateAsync({ type: 'blob' })], 'native-page-count.docx'));
+    expect(result.kind).toBe('document');
+    if (result.kind !== 'document') return;
+    expect(result.document.pages).toHaveLength(3);
+    expect(result.document.pages.every((page) => (page.textFlow.content?.length ?? 0) > 0)).toBe(true);
+    expect(result.document.pages.map((page) => JSON.stringify(page.textFlow)).join('')).toContain('45번째 복원 문단');
   });
 
   it('keeps text before and after a page-break-only paragraph', async () => {
