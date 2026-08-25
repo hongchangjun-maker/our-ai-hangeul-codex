@@ -86,6 +86,18 @@ describe('word document format boundary', () => {
     if (result.kind === 'document') expect(result.document.pages[0].textFlow.content?.[0]).toMatchObject({ attrs: { lineHeight: '1.15', spaceBeforePx: 4, spaceAfterPx: 4 } });
   });
 
+  it('preserves the supplied A5 manuscript margins as clean millimeter values on every imported page', async () => {
+    const zip = new JSZip();
+    zip.file('word/document.xml', '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>첫째 쪽</w:t><w:br w:type="page"/></w:r></w:p><w:p><w:r><w:t>둘째 쪽</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="8732" w:h="12247" w:code="11"/><w:pgMar w:top="1588" w:right="1304" w:bottom="1871" w:left="1304" w:header="851" w:footer="567" w:gutter="284"/></w:sectPr></w:body></w:document>');
+    const result = await importFile(new File([await zip.generateAsync({ type: 'blob' })], 'a5-manuscript.docx'));
+    expect(result.kind).toBe('document');
+    if (result.kind === 'document') {
+      expect(result.document.pages).toHaveLength(2);
+      expect(result.document.pages.every((page) => page.preset === 'A5')).toBe(true);
+      expect(result.document.pages.every((page) => JSON.stringify(page.margins) === JSON.stringify({ top: 28, right: 23, bottom: 33, left: 23 }))).toBe(true);
+    }
+  });
+
   it('restores Word page markers and keeps an embedded picture on its original page', async () => {
     const zip = new JSZip();
     zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body><w:p><w:r><w:t>첫째 쪽</w:t><w:br w:type="page"/><w:lastRenderedPageBreak/><w:t>둘째 쪽</w:t><w:drawing><wp:inline><wp:extent cx="952500" cy="476250"/><wp:docPr id="1" name="둘째 쪽 그림"/><a:graphic><a:graphicData><a:blip r:embed="rId1"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`);

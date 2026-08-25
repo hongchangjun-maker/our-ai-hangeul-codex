@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createDocument, createPage, duplicatePage, MAX_DOCUMENT_PAGES, migrateDocument } from '../app/domain/document';
+import { A5_MANUSCRIPT_MARGINS, createDocument, createPage, defaultMarginsForPreset, duplicatePage, MAX_DOCUMENT_PAGES, migrateDocument } from '../app/domain/document';
 import { fitPageObjects, pageGeometry } from '../app/domain/geometry';
 
 describe('document domain', () => {
@@ -17,6 +17,12 @@ describe('document domain', () => {
     expect(report.pages[0].preset).toBe('A4');
     expect(report.pages[0].objects).toEqual([]);
     expect(report.pages[0].textFlow.content?.length).toBeGreaterThan(2);
+  });
+
+  it('uses the supplied A5 book manuscript margins for new and reset pages', () => {
+    expect(A5_MANUSCRIPT_MARGINS).toEqual({ top: 28, right: 23, bottom: 33, left: 23 });
+    expect(defaultMarginsForPreset('A5')).toEqual(A5_MANUSCRIPT_MARGINS);
+    expect(createPage(undefined, 'A5').margins).toEqual(A5_MANUSCRIPT_MARGINS);
   });
 
   it('duplicates a page without reusing page or object ids', () => {

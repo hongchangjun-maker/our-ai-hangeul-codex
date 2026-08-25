@@ -71,9 +71,11 @@ export function applyDocumentStylePreset(document: EditorDocument, styleId: Docu
   };
 }
 
+export const A5_MANUSCRIPT_MARGINS: Readonly<PageMargins> = { top: 28, right: 23, bottom: 33, left: 23 };
+
 export const DEFAULT_MARGINS_BY_PRESET: Record<PagePreset, PageMargins> = {
   A4: { top: 25.4, right: 25.4, bottom: 25.4, left: 25.4 },
-  A5: { top: 25.4, right: 21, bottom: 25.4, left: 21 },
+  A5: { ...A5_MANUSCRIPT_MARGINS },
   B4: { top: 25.4, right: 25.4, bottom: 25.4, left: 25.4 },
   A3: { top: 25.4, right: 25.4, bottom: 25.4, left: 25.4 },
   B5: { top: 22, right: 20, bottom: 22, left: 20 },

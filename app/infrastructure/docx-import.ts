@@ -37,7 +37,7 @@ function relationId(element: Element | null) { return element?.getAttributeNS(R,
 function embeddedRelationId(element: Element | null) { return element?.getAttributeNS(R, 'embed') ?? element?.getAttributeNS(R, 'link') ?? element?.getAttribute('r:embed') ?? element?.getAttribute('r:link') ?? ''; }
 function number(value: string | null | undefined, fallback = 0) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; }
 function emuToPx(value: string | null | undefined) { return number(value) / EMU_PER_PX; }
-function twipsToMm(value: string | null | undefined, fallback: number) { return value ? number(value) / TWIPS_PER_INCH * 25.4 : fallback; }
+function twipsToMm(value: string | null | undefined, fallback: number) { return value ? Math.round(number(value) / TWIPS_PER_INCH * 25.4 * 10) / 10 : fallback; }
 function twipsToPx(value: string | null | undefined) { return number(value) / TWIPS_PER_INCH * 96; }
 
 function normalizedWordPath(target: string) {
