@@ -67,6 +67,25 @@ describe('word document format boundary', () => {
     expect(importedText(await importFile(file))).toContain('DOCX 문서 본문');
   });
 
+  it('automatically paginates DOCX text that has no saved page-break markers', async () => {
+    const docx = new Document({ sections: [{ children: Array.from({ length: 90 }, (_, index) => new Paragraph(`${index + 1}번째 가져온 문단은 A4 상하 입력 영역을 넘지 않아야 합니다.`)) }] });
+    const file = new File([await Packer.toBlob(docx)], 'automatic-pages.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const result = await importFile(file);
+    expect(result.kind).toBe('document');
+    if (result.kind === 'document') {
+      expect(result.document.pages.length).toBeGreaterThan(1);
+      expect(JSON.stringify(result.document.pages.at(-1)!.textFlow)).toContain('90번째');
+    }
+  });
+
+  it('preserves Word line and paragraph spacing used by the A4 height calculation', async () => {
+    const zip = new JSZip();
+    zip.file('word/document.xml', '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:spacing w:before="60" w:after="60" w:line="276" w:lineRule="auto"/></w:pPr><w:r><w:t>원본 간격</w:t></w:r></w:p></w:body></w:document>');
+    const result = await importFile(new File([await zip.generateAsync({ type: 'blob' })], 'spacing.docx'));
+    expect(result.kind).toBe('document');
+    if (result.kind === 'document') expect(result.document.pages[0].textFlow.content?.[0]).toMatchObject({ attrs: { lineHeight: '1.15', spaceBeforePx: 4, spaceAfterPx: 4 } });
+  });
+
   it('restores Word page markers and keeps an embedded picture on its original page', async () => {
     const zip = new JSZip();
     zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body><w:p><w:r><w:t>첫째 쪽</w:t><w:br w:type="page"/><w:lastRenderedPageBreak/><w:t>둘째 쪽</w:t><w:drawing><wp:inline><wp:extent cx="952500" cy="476250"/><wp:docPr id="1" name="둘째 쪽 그림"/><a:graphic><a:graphicData><a:blip r:embed="rId1"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`);

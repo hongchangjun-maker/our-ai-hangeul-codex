@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import { createDocument, createPage, MAX_DOCUMENT_PAGES, PAGE_PRESETS, type DocumentObject, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
 import { mmToPx } from '../domain/geometry';
+import { paginateRichTextDocument } from '../domain/text-pagination';
 import { imagePixelSize } from './image-metadata';
 import { storeAsset } from './local-storage';
 
@@ -37,6 +38,7 @@ function embeddedRelationId(element: Element | null) { return element?.getAttrib
 function number(value: string | null | undefined, fallback = 0) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; }
 function emuToPx(value: string | null | undefined) { return number(value) / EMU_PER_PX; }
 function twipsToMm(value: string | null | undefined, fallback: number) { return value ? number(value) / TWIPS_PER_INCH * 25.4 : fallback; }
+function twipsToPx(value: string | null | undefined) { return number(value) / TWIPS_PER_INCH * 96; }
 
 function normalizedWordPath(target: string) {
   const parts = `${target.startsWith('/') ? '' : 'word/'}${target}`.split('/');
@@ -111,7 +113,11 @@ function paragraphShape(paragraph: Element) {
   const style = wordValue(properties ? first(properties, W, 'pStyle') : null);
   const heading = /(?:heading|제목)\s*([1-6])/i.exec(style);
   const alignment = wordValue(properties ? first(properties, W, 'jc') : null);
-  return { type: heading ? 'heading' : 'paragraph', attrs: { ...(heading ? { level: Math.min(3, number(heading[1], 1)) } : {}), ...(alignment ? { textAlign: alignment === 'both' ? 'justify' : alignment } : {}) }, properties };
+  const spacing = properties ? first(properties, W, 'spacing') : null;
+  const line = wordValue(spacing, 'line'); const lineRule = wordValue(spacing, 'lineRule');
+  const lineHeight = line ? (lineRule === 'auto' || !lineRule ? String(Math.max(0.8, number(line) / 240)) : `${twipsToPx(line)}px`) : undefined;
+  const before = wordValue(spacing, 'before'); const after = wordValue(spacing, 'after');
+  return { type: heading ? 'heading' : 'paragraph', attrs: { ...(heading ? { level: Math.min(3, number(heading[1], 1)) } : {}), ...(alignment ? { textAlign: alignment === 'both' ? 'justify' : alignment } : {}), ...(lineHeight ? { lineHeight } : {}), ...(before ? { spaceBeforePx: twipsToPx(before) } : {}), ...(after ? { spaceAfterPx: twipsToPx(after) } : {}) }, properties };
 }
 
 function objectMime(path: string) {
@@ -226,6 +232,11 @@ export async function importDocxDocument(file: File): Promise<EditorDocument> {
   }
   if (builders.length > 1 && !builders.at(-1)!.visible && !(builders.at(-1)!.page.textFlow.content as RichNode[]).length) builders.pop();
   const base = createDocument('blank');
-  const pages = builders.map(({ page }) => ({ ...page, textFlow: { type: 'doc', content: page.textFlow.content?.length ? page.textFlow.content : [{ type: 'paragraph' }] } as RichTextDocument }));
+  const pages = builders.flatMap(({ page }) => {
+    const sourceFlow = { type: 'doc', content: page.textFlow.content?.length ? page.textFlow.content : [{ type: 'paragraph' }] } as RichTextDocument;
+    const flows = paginateRichTextDocument(sourceFlow, { preset: page.preset, orientation: page.orientation, margins: page.margins, defaultFontSizePt: base.settings.defaultFontSize, lineHeight: base.settings.lineHeight, maxPages: MAX_DOCUMENT_PAGES });
+    return flows.map((textFlow, index) => index === 0 ? { ...page, textFlow } : { ...createPage(textFlow, page.preset, page.orientation, page.margins), header: page.header, footer: page.footer });
+  });
+  if (pages.length > MAX_DOCUMENT_PAGES) throw new Error(`가져올 문서는 최대 ${MAX_DOCUMENT_PAGES}쪽까지 지원합니다.`);
   return { ...base, name: file.name.replace(/\.[^.]+$/, '').trim() || '가져온 문서', pages } as EditorDocument;
 }

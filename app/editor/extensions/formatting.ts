@@ -45,6 +45,16 @@ export const LineHeight = Extension.create({
           parseHTML: (element) => element.style.lineHeight || null,
           renderHTML: (attributes) => attributes.lineHeight ? { style: `line-height: ${attributes.lineHeight}` } : {},
         },
+        spaceBeforePx: {
+          default: null,
+          parseHTML: (element) => element.style.marginTop ? Number(element.style.marginTop.replace('px', '')) : null,
+          renderHTML: (attributes) => Number.isFinite(attributes.spaceBeforePx) ? { style: `margin-top: ${attributes.spaceBeforePx}px` } : {},
+        },
+        spaceAfterPx: {
+          default: null,
+          parseHTML: (element) => element.style.marginBottom ? Number(element.style.marginBottom.replace('px', '')) : null,
+          renderHTML: (attributes) => Number.isFinite(attributes.spaceAfterPx) ? { style: `margin-bottom: ${attributes.spaceAfterPx}px` } : {},
+        },
       },
     }];
   },

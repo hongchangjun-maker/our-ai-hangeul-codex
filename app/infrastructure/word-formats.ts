@@ -1,4 +1,5 @@
 import { createDocument, createPage, MAX_DOCUMENT_PAGES, type DocumentObject, type EditorDocument, type RichTextDocument } from '../domain/document';
+import { paginateRichTextDocument } from '../domain/text-pagination';
 import { storeAsset } from './local-storage';
 import { importDocxDocument } from './docx-import';
 
@@ -26,7 +27,9 @@ function contentFromLines(lines: Array<{ text: string; level?: number; bullet?: 
 
 function importedDocument(name: string, textFlow: RichTextDocument): EditorDocument {
   const document = createDocument('blank');
-  return { ...document, name: fileStem(name), pages: [{ ...document.pages[0], textFlow }] };
+  const source = document.pages[0];
+  const flows = paginateRichTextDocument(textFlow, { preset: source.preset, orientation: source.orientation, margins: source.margins, defaultFontSizePt: document.settings.defaultFontSize, lineHeight: document.settings.lineHeight, maxPages: MAX_DOCUMENT_PAGES });
+  return { ...document, name: fileStem(name), pages: flows.map((flow, index) => index === 0 ? { ...source, textFlow: flow } : createPage(flow, source.preset, source.orientation, source.margins)) };
 }
 
 function xmlDocument(xml: string) {

@@ -64,7 +64,12 @@ function RichNode({ node, nodeKey }: { node: unknown; nodeKey: string | number }
   if (value.type === 'hardBreak') return <br key={nodeKey} />;
   const keyText = String(nodeKey);
   const children = value.content?.map((child, index) => <RichNode key={`${keyText}-${index}`} nodeKey={`${keyText}-${index}`} node={child} />);
-  const blockStyle = { textAlign: value.attrs?.textAlign as React.CSSProperties['textAlign'], lineHeight: value.attrs?.lineHeight as string };
+  const blockStyle = {
+    textAlign: value.attrs?.textAlign as React.CSSProperties['textAlign'],
+    lineHeight: value.attrs?.lineHeight as string,
+    marginTop: value.attrs?.spaceBeforePx === undefined ? undefined : `${value.attrs.spaceBeforePx}px`,
+    marginBottom: value.attrs?.spaceAfterPx === undefined ? undefined : `${value.attrs.spaceAfterPx}px`,
+  };
   if (value.type === 'heading') { const level = Number(value.attrs?.level || 1); if (level === 1) return <h1 key={nodeKey} style={blockStyle}>{children}</h1>; if (level === 2) return <h2 key={nodeKey} style={blockStyle}>{children}</h2>; return <h3 key={nodeKey} style={blockStyle}>{children}</h3>; }
   if (value.type === 'paragraph') return <p key={nodeKey} style={blockStyle}>{children || <br />}</p>;
   if (value.type === 'bulletList') return <ul key={nodeKey}>{children}</ul>;
