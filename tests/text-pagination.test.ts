@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createPage, type RichTextDocument } from '../app/domain/document';
-import { estimateRichTextHeight, paginateRichTextDocument, textPageCapacity } from '../app/domain/text-pagination';
+import { createDocument, createPage, type RichTextDocument } from '../app/domain/document';
+import { estimateRichTextHeight, paginateRichTextDocument, splitOverflowingPage, textPageCapacity } from '../app/domain/text-pagination';
 
 const options = { preset: 'A4' as const, orientation: 'portrait' as const, margins: { top: 25.4, right: 25.4, bottom: 25.4, left: 25.4 }, defaultFontSizePt: 11, lineHeight: 1.7 };
 const textOf = (flow: RichTextDocument) => JSON.stringify(flow.content).match(/"text":"([^"]*)"/g)?.map((value) => JSON.parse(`{${value}}`).text).join('') ?? '';
@@ -29,5 +29,26 @@ describe('rich text page fitting', () => {
     const a5 = textPageCapacity({ ...options, preset: 'A5', margins: a5Page.margins });
     expect(a5.heightPx).toBeLessThan(a4.heightPx);
     expect(a5.widthPx).toBeLessThan(a4.widthPx);
+  });
+
+  it('inserts live overflow directly after the edited page without losing later pages or objects', () => {
+    const document = createDocument();
+    const originalNext = createPage({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '기존 다음 쪽' }] }] });
+    document.pages[0].objects = [{ id: crypto.randomUUID(), type: 'shape', x: 20, y: 20, width: 80, height: 60, rotation: 0, zIndex: 1, locked: false, opacity: 1 }];
+    document.pages.push(originalNext);
+    const flow: RichTextDocument = { type: 'doc', content: Array.from({ length: 90 }, (_, index) => ({ type: 'paragraph', content: [{ type: 'text', text: `${index + 1}번째 연속 입력 문단` }] })) };
+    const result = splitOverflowingPage(document, 0, flow);
+    expect(result.didSplit).toBe(true);
+    expect(result.nextPageIndex).toBe(result.document.pages.length - 2);
+    expect(result.document.pages.at(-1)?.id).toBe(originalNext.id);
+    expect(result.document.pages[0].objects).toHaveLength(1);
+    expect(result.document.pages.flatMap((page) => textOf(page.textFlow)).join('')).toContain('90번째 연속 입력 문단');
+  });
+
+  it('treats null Tiptap paragraph spacing as the normal CSS paragraph margin', () => {
+    const flow: RichTextDocument = { type: 'doc', content: Array.from({ length: 40 }, (_, index) => ({ type: 'paragraph', attrs: { lineHeight: null, spaceBeforePx: null, spaceAfterPx: null }, content: [{ type: 'text', text: `${index + 1}번째 문단` }] })) };
+    const pages = paginateRichTextDocument(flow, options);
+    expect(pages.length).toBeGreaterThan(1);
+    for (const page of pages) expect(estimateRichTextHeight(page, options)).toBeLessThanOrEqual(textPageCapacity(options).heightPx + 0.001);
   });
 });

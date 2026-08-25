@@ -1,4 +1,4 @@
-import type { EditorDocument } from './document';
+import type { EditorDocument, RichTextDocument } from './document';
 
 type Node = { type?: string; text?: string; content?: Node[]; [key: string]: unknown };
 
@@ -16,6 +16,11 @@ const KOREAN_RULES = [
   { pattern: /\s+([,.!?])/g, replacement: '$1', reason: '문장 부호 앞의 불필요한 공백을 제거합니다.' },
   { pattern: / {2,}/g, replacement: ' ', reason: '연속된 공백을 하나로 줄입니다.' },
 ] as const;
+
+export function paragraphsFromText(text: string): RichTextDocument {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  return { type: 'doc', content: lines.map((line) => line ? { type: 'paragraph', content: [{ type: 'text', text: line }] } : { type: 'paragraph' }) };
+}
 
 function walk(node: Node, visit: (node: Node) => void) {
   visit(node);

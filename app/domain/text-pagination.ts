@@ -1,4 +1,4 @@
-import { PAGE_PRESETS, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from './document';
+import { createPage, MAX_DOCUMENT_PAGES, PAGE_PRESETS, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from './document';
 import { mmToPx } from './geometry';
 
 type RichNode = {
@@ -71,7 +71,9 @@ function textBlockMetrics(node: RichNode, options: Required<Pick<TextPaginationO
   const fontPx = maximumInlineFont(node, cssFontPx);
   const storedLineHeight = typeof node.attrs?.lineHeight === 'string' ? node.attrs.lineHeight.trim() : '';
   const lineHeight = storedLineHeight.endsWith('px') ? Number(storedLineHeight.slice(0, -2)) : storedLineHeight && Number.isFinite(Number(storedLineHeight)) ? fontPx * Number(storedLineHeight) : node.type === 'heading' ? fontPx * (level === 1 ? 1.3 : level === 2 ? 1.4 : options.lineHeight) : fontPx * options.lineHeight;
-  const spacingBefore = Number(node.attrs?.spaceBeforePx); const spacingAfter = Number(node.attrs?.spaceAfterPx);
+  const rawBefore = node.attrs?.spaceBeforePx; const rawAfter = node.attrs?.spaceAfterPx;
+  const spacingBefore = rawBefore === null || rawBefore === undefined || rawBefore === '' ? Number.NaN : Number(rawBefore);
+  const spacingAfter = rawAfter === null || rawAfter === undefined || rawAfter === '' ? Number.NaN : Number(rawAfter);
   const hasStoredSpacing = Number.isFinite(spacingBefore) || Number.isFinite(spacingAfter);
   const margin = hasStoredSpacing ? (Number.isFinite(spacingBefore) ? spacingBefore : 0) + (Number.isFinite(spacingAfter) ? spacingAfter : 0) : node.type === 'heading' ? (level === 1 ? 26 : level === 2 ? 40 : 32) : 14;
   return { fontPx, lineHeight, margin, lines: countInlineLines(node.content, widthPx, fontPx) };
@@ -175,4 +177,48 @@ export function paginateRichTextDocument(flow: RichTextDocument, options: TextPa
   }
   const fitted = pages.filter((content) => content.length).map((content) => ({ type: 'doc', content }) as RichTextDocument);
   return fitted.length ? fitted : [{ type: 'doc', content: [{ type: 'paragraph' }] }];
+}
+
+export interface OverflowPageSplit {
+  document: EditorDocument;
+  didSplit: boolean;
+  nextPageIndex: number | null;
+  nextPageId: string | null;
+}
+
+export function splitOverflowingPage(document: EditorDocument, pageIndex: number, textFlow: RichTextDocument): OverflowPageSplit {
+  const page = document.pages[pageIndex];
+  if (!page) return { document, didSplit: false, nextPageIndex: null, nextPageId: null };
+  const flows = paginateRichTextDocument(textFlow, {
+    preset: page.preset,
+    orientation: page.orientation,
+    margins: page.margins,
+    defaultFontSizePt: document.settings.defaultFontSize,
+    lineHeight: document.settings.lineHeight,
+    maxPages: MAX_DOCUMENT_PAGES,
+  });
+  if (flows.length <= 1) return { document, didSplit: false, nextPageIndex: null, nextPageId: null };
+  const additionalPages = flows.length - 1;
+  if (document.pages.length + additionalPages > MAX_DOCUMENT_PAGES) throw new Error(`문서는 최대 ${MAX_DOCUMENT_PAGES}쪽까지 만들 수 있습니다.`);
+  const overflowPages = flows.slice(1).map((flow) => ({
+    ...createPage(flow, page.preset, page.orientation, page.margins),
+    background: page.background,
+    header: page.header,
+    footer: page.footer,
+  }));
+  const nextPageIndex = pageIndex + overflowPages.length;
+  return {
+    document: {
+      ...document,
+      pages: [
+        ...document.pages.slice(0, pageIndex),
+        { ...page, textFlow: flows[0] },
+        ...overflowPages,
+        ...document.pages.slice(pageIndex + 1),
+      ],
+    },
+    didSplit: true,
+    nextPageIndex,
+    nextPageId: overflowPages.at(-1)!.id,
+  };
 }

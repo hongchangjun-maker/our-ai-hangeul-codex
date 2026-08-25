@@ -15,6 +15,7 @@ import { AlertTriangle, FileCheck2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { applyDocumentStylePreset, createDocument, createPage, defaultMarginsForPreset, documentStylePreset, duplicatePage, MAX_DOCUMENT_PAGES, migrateDocument, type DocumentObject, type DocumentStyleId, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from '../domain/document';
 import { fitPageObjects, pageGeometry } from '../domain/geometry';
+import { paragraphsFromText } from '../domain/text-tools';
 import { collectDocumentFontFamilies, documentToText } from '../infrastructure/export-service';
 import { importFile } from '../infrastructure/file-import';
 import { listRecentDocuments } from '../infrastructure/local-storage';
@@ -34,12 +35,8 @@ import { printWithOriginalImages, useDocumentExport } from './hooks/use-document
 import { useDocumentState } from './hooks/use-document'; import { useTypingPerformanceProbe } from './hooks/use-typing-performance-probe';
 import { useAppDefaults } from './hooks/use-app-defaults'; import { useShareLinkLaunch } from './hooks/use-share-link-launch';
 import { useViewportZoom } from './hooks/use-viewport-zoom'; import { useClipboardImages } from './hooks/use-clipboard-images'; import { usePageViewMode } from './hooks/use-page-view-mode';
-import { useEditorContentTransition } from './hooks/use-editor-content-transition';
+import { useEditorContentTransition } from './hooks/use-editor-content-transition'; import { useLivePagination } from './hooks/use-live-pagination';
 import { rowsToTable } from './table-utils';
-function paragraphsFromText(text: string): RichTextDocument {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  return { type: 'doc', content: lines.map((line) => line ? { type: 'paragraph', content: [{ type: 'text', text: line }] } : { type: 'paragraph' }) };
-}
 export function EditorApp() {
   useTypingPerformanceProbe(); const store = useDocumentState();
   const { defaults: appDefaults, refresh: refreshAppDefaults } = useAppDefaults();
@@ -85,6 +82,7 @@ export function EditorApp() {
   const documentActionAt = useRef(0);
   const pageIdRef = useRef(''); const composingRef = useRef(false);
   const { activeRef: editorContentTransitionRef, replace: replaceEditorPageContent } = useEditorContentTransition();
+  const { schedule: scheduleLivePagination, focusOverflowPage } = useLivePagination({ document: store.document, updateDocument: store.updateDocument, currentPageRef, pageIdRef, composingRef, transitionRef: editorContentTransitionRef, onPageChange: (pageIndex) => { setSelectionText(''); setSelectedObjectId(null); setCurrentPage(pageIndex); }, onLimit: (message) => setToast({ type: 'info', message }) });
   const editor = useEditor({
     immediatelyRender: false, shouldRerenderOnTransaction: false,
     extensions: [
@@ -103,13 +101,15 @@ export function EditorApp() {
     ],
     content: store.document.pages[0].textFlow as JSONContent,
     editorProps: { attributes: { class: 'document-editor', 'aria-label': '문서 본문 편집 영역', spellcheck: 'true' }, handleDOMEvents: {
-      compositionstart() { composingRef.current = true; store.flushEditorUpdates(); return false; }, compositionend(view) { composingRef.current = false; queueMicrotask(() => { store.bufferEditorPage(currentPageRef.current, view.state.doc.toJSON() as RichTextDocument); store.flushEditorUpdates(); }); return false; }, blur() { store.flushEditorUpdates(); return false; },
+      compositionstart() { composingRef.current = true; store.flushEditorUpdates(); return false; }, compositionend(view) { composingRef.current = false; queueMicrotask(() => { const textFlow = view.state.doc.toJSON() as RichTextDocument; store.bufferEditorPage(currentPageRef.current, textFlow); store.flushEditorUpdates(); scheduleLivePagination(textFlow); }); return false; }, blur() { store.flushEditorUpdates(); return false; },
     } },
     onUpdate({ editor: activeEditor }) {
       if (editorContentTransitionRef.current) return;
       textActionAt.current = Date.now();
       if (composingRef.current) return;
-      store.bufferEditorPage(currentPageRef.current, activeEditor.getJSON() as RichTextDocument);
+      const textFlow = activeEditor.getJSON() as RichTextDocument;
+      store.bufferEditorPage(currentPageRef.current, textFlow);
+      scheduleLivePagination(textFlow);
     },
     onSelectionUpdate({ editor: activeEditor }) { const { from, to } = activeEditor.state.selection;
       setSelectionText(from === to ? '' : activeEditor.state.doc.textBetween(from, to, '\n').slice(0, 20_000));
@@ -121,9 +121,9 @@ export function EditorApp() {
     if (!editor || !page) return;
     const pageChanged = pageIdRef.current !== page.id;
     if (!pageChanged && (editor.isFocused || JSON.stringify(editor.getJSON()) === JSON.stringify(page.textFlow))) return;
-    pageIdRef.current = page.id; replaceEditorPageContent(editor, page.textFlow);
+    pageIdRef.current = page.id; replaceEditorPageContent(editor, page.textFlow); focusOverflowPage(editor, page.id);
     if (pageChanged) { setSelectionText(''); setSelectedObjectId(null); }
-  }, [currentPage, editor, replaceEditorPageContent, store.document.pages]);
+  }, [currentPage, editor, focusOverflowPage, replaceEditorPageContent, store.document.pages]);
   useEffect(() => { try { localStorage.setItem(pageLayoutScopeStorageKey, pageLayoutScope); } catch { /* localStorage unavailable */ }
   }, [pageLayoutScope]);
   useEffect(() => {
