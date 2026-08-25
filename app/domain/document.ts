@@ -1,4 +1,4 @@
-export const DOCUMENT_FORMAT_VERSION = '1.3.0';
+export const DOCUMENT_FORMAT_VERSION = '1.4.0';
 
 export const PAGE_PRESETS = {
   A4: { widthMm: 210, heightMm: 297 },
@@ -134,6 +134,10 @@ export interface DocumentPage {
   objects: DocumentObject[];
   header?: string;
   footer?: string;
+  /** Exact physical sheet dimensions retained from an imported office file. */
+  customSizeMm?: { widthMm: number; heightMm: number };
+  /** Word/Hanword-style corner-only text-area guides. Screen-only. */
+  guideStyle?: 'box' | 'corners';
 }
 
 export interface EditorDocument {
@@ -255,7 +259,8 @@ function validateDocumentShape(value: EditorDocument) {
     const raw = record(page);
     const margins = record(raw?.margins);
     const textFlow = record(raw?.textFlow);
-    if (!raw || !stringValue(raw.id) || typeof raw.preset !== 'string' || !(raw.preset in PAGE_PRESETS) || !['portrait', 'landscape'].includes(String(raw.orientation)) || !margins || !['top', 'right', 'bottom', 'left'].every((edge) => numberValue(margins[edge], 0, 500)) || !stringValue(raw.background, 128) || textFlow?.type !== 'doc' || (textFlow.content !== undefined && !Array.isArray(textFlow.content)) || !Array.isArray(raw.objects) || raw.objects.length > 2_000) throw new Error('문서 페이지 데이터가 올바르지 않습니다.');
+    const customSize = record(raw?.customSizeMm);
+    if (!raw || !stringValue(raw.id) || typeof raw.preset !== 'string' || !(raw.preset in PAGE_PRESETS) || !['portrait', 'landscape'].includes(String(raw.orientation)) || !margins || !['top', 'right', 'bottom', 'left'].every((edge) => numberValue(margins[edge], 0, 500)) || (customSize && (!numberValue(customSize.widthMm, 20, 1_500) || !numberValue(customSize.heightMm, 20, 1_500))) || (raw.guideStyle !== undefined && !['box', 'corners'].includes(String(raw.guideStyle))) || !stringValue(raw.background, 128) || textFlow?.type !== 'doc' || (textFlow.content !== undefined && !Array.isArray(textFlow.content)) || !Array.isArray(raw.objects) || raw.objects.length > 2_000) throw new Error('문서 페이지 데이터가 올바르지 않습니다.');
     for (const object of raw.objects) {
       const item = record(object);
       const crop = item ? record(item.crop) : null;
@@ -300,6 +305,9 @@ export function migrateDocument(input: unknown): EditorDocument {
     } as EditorDocument);
   }
   if (candidate.formatVersion === '1.2.0') {
+    return validateDocumentShape({ ...candidate, formatVersion: DOCUMENT_FORMAT_VERSION } as EditorDocument);
+  }
+  if (candidate.formatVersion === '1.3.0') {
     return validateDocumentShape({ ...candidate, formatVersion: DOCUMENT_FORMAT_VERSION } as EditorDocument);
   }
   if (candidate.formatVersion !== DOCUMENT_FORMAT_VERSION) throw new Error(`지원하지 않는 문서 버전입니다: ${candidate.formatVersion ?? '알 수 없음'}`);

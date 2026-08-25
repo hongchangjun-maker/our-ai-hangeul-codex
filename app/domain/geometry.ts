@@ -7,6 +7,10 @@ export const mmToPx = (mm: number) => (mm / MM_PER_INCH) * CSS_PX_PER_INCH;
 export const pxToMm = (px: number) => (px / CSS_PX_PER_INCH) * MM_PER_INCH;
 
 export function pageGeometry(page: DocumentPage) {
+  if (page.customSizeMm) {
+    const { widthMm, heightMm } = page.customSizeMm;
+    return { widthMm, heightMm, widthPx: mmToPx(widthMm), heightPx: mmToPx(heightMm) };
+  }
   const preset = PAGE_PRESETS[page.preset];
   const portrait = page.orientation === 'portrait';
   const widthMm = portrait ? preset.widthMm : preset.heightMm;

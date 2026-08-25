@@ -1,4 +1,4 @@
-import { createPage, defaultMarginsForPreset, MAX_DOCUMENT_PAGES, PAGE_PRESETS, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from './document';
+import { createPage, defaultMarginsForPreset, MAX_DOCUMENT_PAGES, PAGE_PRESETS, type DocumentPage, type EditorDocument, type Orientation, type PageMargins, type PagePreset, type RichTextDocument } from './document';
 import { fitPageObjects, mmToPx } from './geometry';
 
 type RichNode = {
@@ -16,6 +16,7 @@ export interface TextPaginationOptions {
   defaultFontSizePt?: number;
   lineHeight?: number;
   maxPages?: number;
+  customSizeMm?: { widthMm: number; heightMm: number };
 }
 
 const PAGE_FILL_RATIO = 0.96;
@@ -140,8 +141,8 @@ function splitOversizedNode(node: RichNode, capacity: number, options: Required<
 
 export function textPageCapacity(options: TextPaginationOptions) {
   const dimensions = PAGE_PRESETS[options.preset]; const portrait = options.orientation === 'portrait';
-  const widthMm = portrait ? dimensions.widthMm : dimensions.heightMm;
-  const heightMm = portrait ? dimensions.heightMm : dimensions.widthMm;
+  const widthMm = options.customSizeMm?.widthMm ?? (portrait ? dimensions.widthMm : dimensions.heightMm);
+  const heightMm = options.customSizeMm?.heightMm ?? (portrait ? dimensions.heightMm : dimensions.widthMm);
   return {
     widthPx: Math.max(48, mmToPx(widthMm - options.margins.left - options.margins.right)),
     heightPx: Math.max(48, mmToPx(heightMm - options.margins.top - options.margins.bottom) * PAGE_FILL_RATIO),
@@ -180,12 +181,12 @@ export function paginateRichTextDocument(flow: RichTextDocument, options: TextPa
 }
 
 export function applyPaperPresetToAllPages(document: EditorDocument, preset: PagePreset): EditorDocument {
-  const margins = defaultMarginsForPreset(preset); const pages = [];
+  const margins = defaultMarginsForPreset(preset); const pages: DocumentPage[] = [];
   for (const source of document.pages) {
     const flows = paginateRichTextDocument(source.textFlow, { preset, orientation: source.orientation, margins, defaultFontSizePt: document.settings.defaultFontSize, lineHeight: document.settings.lineHeight, maxPages: MAX_DOCUMENT_PAGES });
     for (const [index, textFlow] of flows.entries()) {
       if (pages.length >= MAX_DOCUMENT_PAGES) throw new Error(`문서는 최대 ${MAX_DOCUMENT_PAGES}쪽까지 만들 수 있습니다.`);
-      pages.push(index === 0 ? fitPageObjects({ ...source, preset, margins, textFlow }) : { ...createPage(textFlow, preset, source.orientation, margins), background: source.background, header: source.header, footer: source.footer });
+      pages.push(index === 0 ? fitPageObjects({ ...source, preset, margins, textFlow, customSizeMm: undefined, guideStyle: 'box' }) : { ...createPage(textFlow, preset, source.orientation, margins), background: source.background, header: source.header, footer: source.footer, guideStyle: 'box' });
     }
   }
   return { ...document, pages };
@@ -208,6 +209,7 @@ export function splitOverflowingPage(document: EditorDocument, pageIndex: number
     defaultFontSizePt: document.settings.defaultFontSize,
     lineHeight: document.settings.lineHeight,
     maxPages: MAX_DOCUMENT_PAGES,
+    customSizeMm: page.customSizeMm,
   });
   if (flows.length <= 1) return { document, didSplit: false, nextPageIndex: null, nextPageId: null };
   const additionalPages = flows.length - 1;
@@ -217,6 +219,8 @@ export function splitOverflowingPage(document: EditorDocument, pageIndex: number
     background: page.background,
     header: page.header,
     footer: page.footer,
+    customSizeMm: page.customSizeMm,
+    guideStyle: page.guideStyle,
   }));
   const nextPageIndex = pageIndex + overflowPages.length;
   return {

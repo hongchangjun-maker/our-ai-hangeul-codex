@@ -10,7 +10,7 @@ describe('document domain', () => {
   });
   it('creates a versioned A4 document from each first-run template', () => {
     const report = createDocument('report');
-    expect(report.formatVersion).toBe('1.3.0');
+    expect(report.formatVersion).toBe('1.4.0');
     expect(report.settings.pageNumber).toEqual({ enabled: true, start: 1, position: 'footer-center', format: 'number' });
     expect(report.settings.documentStyleId).toBe('modern');
     expect(report.pages).toHaveLength(1);
@@ -43,7 +43,7 @@ describe('document domain', () => {
     const document = createDocument();
     const legacySettings = Object.fromEntries(Object.entries(document.settings).filter(([key]) => !['headingFont', 'headingColor', 'lineHeight', 'documentStyleId'].includes(key)));
     const migrated = migrateDocument({ ...document, formatVersion: '1.0.0', settings: legacySettings });
-    expect(migrated.formatVersion).toBe('1.3.0');
+    expect(migrated.formatVersion).toBe('1.4.0');
     expect(migrated.settings.documentStyleId).toBe('modern');
     expect(migrated.settings.headingFont).toBe('Pretendard');
   });

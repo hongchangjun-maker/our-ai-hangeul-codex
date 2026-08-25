@@ -94,8 +94,26 @@ describe('word document format boundary', () => {
     if (result.kind === 'document') {
       expect(result.document.pages).toHaveLength(2);
       expect(result.document.pages.every((page) => page.preset === 'A5')).toBe(true);
-      expect(result.document.pages.every((page) => JSON.stringify(page.margins) === JSON.stringify({ top: 28, right: 23, bottom: 33, left: 23 }))).toBe(true);
+      expect(result.document.pages.every((page) => JSON.stringify(page.margins) === JSON.stringify({ top: 28, right: 23, bottom: 33, left: 28 }))).toBe(true);
+      expect(result.document.pages.every((page) => JSON.stringify(page.customSizeMm) === JSON.stringify({ widthMm: 154, heightMm: 216 }))).toBe(true);
     }
+  });
+
+  it('inherits Word styles, retains mirrored gutter geometry and converts a PAGE field to live numbering', async () => {
+    const zip = new JSZip();
+    zip.file('word/settings.xml', '<?xml version="1.0"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:mirrorMargins/></w:settings>');
+    zip.file('word/styles.xml', '<?xml version="1.0"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:eastAsia="바탕"/><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="book"><w:name w:val="책본문"/><w:rPr><w:rFonts w:eastAsia="굴림"/><w:sz w:val="18"/></w:rPr><w:pPr><w:spacing w:after="0" w:line="276" w:lineRule="auto"/></w:pPr></w:style></w:styles>');
+    zip.file('word/document.xml', '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:pPr><w:pStyle w:val="book"/></w:pPr><w:r><w:t>첫째 쪽</w:t><w:lastRenderedPageBreak/></w:r></w:p><w:p><w:pPr><w:pStyle w:val="book"/></w:pPr><w:r><w:t>둘째 쪽</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="8732" w:h="12247"/><w:pgMar w:top="1588" w:right="1304" w:bottom="1871" w:left="1304" w:gutter="284"/><w:footerReference w:type="default" r:id="rId1"/></w:sectPr></w:body></w:document>');
+    zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>');
+    zip.file('word/footer1.xml', '<?xml version="1.0"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>2</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:ftr>');
+    const result = await importFile(new File([await zip.generateAsync({ type: 'blob' })], 'styled-book.docx'));
+    expect(result.kind).toBe('document'); if (result.kind !== 'document') return;
+    expect(result.document.pages).toHaveLength(2);
+    expect(result.document.pages[0]).toMatchObject({ customSizeMm: { widthMm: 154, heightMm: 216 }, margins: { top: 28, right: 23, bottom: 33, left: 28 }, footer: undefined });
+    expect(result.document.pages[1].margins).toEqual({ top: 28, right: 28, bottom: 33, left: 23 });
+    expect(result.document.settings.pageNumber).toMatchObject({ enabled: true, position: 'footer-center' });
+    expect(JSON.stringify(result.document.pages[0].textFlow)).toContain('"fontFamily":"굴림"');
+    expect(result.document.pages[0].textFlow.content?.[0]).toMatchObject({ attrs: { lineHeight: '1.15', spaceAfterPx: 0 } });
   });
 
   it('restores Word page markers and keeps an embedded picture on its original page', async () => {

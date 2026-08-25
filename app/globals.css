@@ -146,6 +146,9 @@ select.select-tool, select.size-tool, .line-height-tool { appearance: auto; }
 .margin-line { position: absolute; pointer-events: none; background: rgba(23,123,104,.75); }
 .margin-line.horizontal { left: 0; right: 0; height: 1px; }
 .margin-line.vertical { top: 0; bottom: 0; width: 1px; }
+.active-frame-size.corner-guides .margin-line { background-color: transparent; }
+.active-frame-size.corner-guides .margin-line.horizontal { height:8px;background:linear-gradient(to right,rgba(90,103,99,.55) 0 18px,transparent 18px calc(100% - 18px),rgba(90,103,99,.55) calc(100% - 18px) 100%);mask:linear-gradient(#000 0 1px,transparent 1px 100%); }
+.active-frame-size.corner-guides .margin-line.vertical { width:8px;background:linear-gradient(to bottom,rgba(90,103,99,.55) 0 18px,transparent 18px calc(100% - 18px),rgba(90,103,99,.55) calc(100% - 18px) 100%);mask:linear-gradient(90deg,#000 0 1px,transparent 1px 100%); }
 .margin-tooltip {
   position: absolute;
   z-index: 7;

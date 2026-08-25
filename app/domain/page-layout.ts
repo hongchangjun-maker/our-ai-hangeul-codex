@@ -35,7 +35,7 @@ export function applyPageLayout(
     ...document,
     pages: document.pages.map((page, index) => {
       if (scope === 'current' && index !== currentPage) return page;
-      return fitPageObjects({ ...page, preset, orientation, margins: { ...normalizedMargins } });
+      return fitPageObjects({ ...page, preset, orientation, margins: { ...normalizedMargins }, customSizeMm: undefined, guideStyle: 'box' });
     }),
   };
 }
